@@ -13,11 +13,11 @@
     "@supabase/supabase-js": "^2.110.4",
     "framer-motion": "^12.4.7",
     "lucide-react": "^1.24.0",
-    "next": "15.1.0",
+    "next": "^15.1.7",
     "pg": "^8.22.0",
     "react": "19.0.0",
     "react-dom": "19.0.0",
-    "recharts": "^2.15.0",
+    "recharts": "^3.0.0",
     "sonner": "^2.0.1",
     "xlsx": "^0.18.5",
     "zod": "^3.24.1"
@@ -28,7 +28,7 @@
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "eslint": "^9.0.0",
-    "eslint-config-next": "15.1.0",
+    "eslint-config-next": "^15.1.7",
     "postcss": "^8.4.49",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.0"
