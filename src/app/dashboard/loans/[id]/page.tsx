@@ -30,7 +30,8 @@ import {
   Lock,
   Save,
   Image as ImageIcon,
-  MessageSquare
+  MessageSquare,
+  Trash2
 } from 'lucide-react';
 import DashboardLayout from '../../../../components/DashboardLayout';
 import { TouchCard } from '../../../../components/ui/TouchCard';
@@ -153,6 +154,15 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
     );
   }
 
+  const handleDeleteLoan = async () => {
+    if (!loan) return;
+    if (confirm(`Are you sure you want to delete Loan ${loan.loan_number}? This will permanently purge the loan record.`)) {
+      await db.deleteLoan(loan.id, loan.shop_id);
+      toast.success(`Loan ${loan.loan_number} deleted successfully`);
+      router.push('/dashboard/loans');
+    }
+  };
+
   const financials = calculateLoanFinancials(
     loan.loan_amount,
     loan.interest_rate,
@@ -173,7 +183,7 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
               href="/dashboard/loans"
               className="p-2 text-slate-500 hover:text-slate-900 bg-white border border-slate-200 rounded-xl transition-colors"
             >
-              <ArrowLeft className="w-4 h-4" />
+              <ArrowLeft className="w-5 h-5" />
             </Link>
             <div>
               <div className="flex items-center gap-2">
@@ -201,6 +211,15 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={handleDeleteLoan}
+              className="px-3.5 py-2 text-xs font-bold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-xl flex items-center gap-1.5 transition-colors"
+              title="Delete Loan Contract"
+            >
+              <Trash2 className="w-4 h-4 text-rose-600" />
+              <span>Delete Loan</span>
+            </button>
+
             <button
               onClick={() => setWaModalOpen(true)}
               className="px-3.5 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow-md flex items-center gap-1.5 transition-all"

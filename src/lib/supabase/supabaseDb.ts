@@ -592,7 +592,9 @@ export const db = {
           .is('deleted_at', null)
           .order('created_at', { ascending: false });
         if (!error && data) {
-          setStorageItem('loans', data as Loan[]);
+          const otherShopLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id !== shopId);
+          setStorageItem('loans', [...otherShopLoans, ...(data as Loan[])]);
+
           return (data as Loan[]).map(loan => {
             const cust = customersList.find(c => c.id === loan.customer_id) || loan.customer;
             const gold = goldItemsList.find(g => g.id === loan.gold_item_id) || loan.gold_item;
@@ -622,7 +624,7 @@ export const db = {
       }
     }
 
-    const localLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id === shopId);
+    const localLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id === shopId && !l.deleted_at);
     return localLoans.map(loan => {
       const cust = customersList.find(c => c.id === loan.customer_id) || loan.customer;
       const gold = goldItemsList.find(g => g.id === loan.gold_item_id) || loan.gold_item;
@@ -824,6 +826,37 @@ export const db = {
         await supabase.from('loans').update(updateData).eq('id', loanId);
       } catch (err) {
         console.warn('updateLoanStatus warning:', err);
+      }
+    }
+
+    broadcastDbUpdate('loans');
+    return true;
+  },
+
+  async deleteLoan(loanId: string, shopId?: string): Promise<boolean> {
+    const localLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS);
+    const updatedLocal = localLoans.filter(l => l.id !== loanId && l.loan_number !== loanId);
+    setStorageItem('loans', updatedLocal);
+
+    if (isRealSupabase && supabase) {
+      try {
+        const client = supabaseAdmin || supabase;
+        if (client) {
+          const { error } = await client
+            .from('loans')
+            .delete()
+            .or(`id.eq.${loanId},loan_number.eq.${loanId}`);
+
+          if (error) {
+            console.warn('Direct delete warning, performing soft delete:', error.message);
+            await client
+              .from('loans')
+              .update({ status: 'Closed', deleted_at: new Date().toISOString() })
+              .or(`id.eq.${loanId},loan_number.eq.${loanId}`);
+          }
+        }
+      } catch (err) {
+        console.warn('deleteLoan error:', err);
       }
     }
 

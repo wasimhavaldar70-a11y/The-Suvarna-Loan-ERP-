@@ -7,7 +7,8 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Coins, Plus, Search, Filter, FileSpreadsheet, Eye } from 'lucide-react';
+import { Coins, Plus, Search, Filter, FileSpreadsheet, Eye, Trash2 } from 'lucide-react';
+import { toast } from 'sonner';
 import DashboardLayout from '../../../components/DashboardLayout';
 import { CreateGoldLoanModal } from '../../../components/CreateGoldLoanModal';
 import { db } from '../../../lib/supabase/supabaseDb';
@@ -62,6 +63,14 @@ export default function LoansPage() {
       'Status': l.status,
     }));
     exportToExcel(rows, `Gold_Loans_${new Date().toISOString().split('T')[0]}`);
+  };
+
+  const handleDeleteLoan = async (loan: Loan) => {
+    if (confirm(`Are you sure you want to delete Loan ${loan.loan_number}? This will permanently remove the record.`)) {
+      await db.deleteLoan(loan.id, loan.shop_id);
+      toast.success(`Loan ${loan.loan_number} deleted successfully`);
+      loadLoans();
+    }
   };
 
   return (
@@ -187,12 +196,21 @@ export default function LoansPage() {
                         </span>
                       </td>
                       <td className="py-3.5 px-4 text-right">
-                        <Link
-                          href={`/dashboard/loans/${loan.id}`}
-                          className="px-3 py-1 text-[11px] font-bold bg-amber-500 text-white rounded-lg hover:bg-amber-600 inline-flex items-center gap-1 shadow-2xs"
-                        >
-                          <Eye className="w-3.5 h-3.5" /> View
-                        </Link>
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Link
+                            href={`/dashboard/loans/${loan.id}`}
+                            className="px-3 py-1 text-[11px] font-bold bg-amber-500 text-white rounded-lg hover:bg-amber-600 inline-flex items-center gap-1 shadow-2xs"
+                          >
+                            <Eye className="w-3.5 h-3.5" /> View
+                          </Link>
+                          <button
+                            onClick={() => handleDeleteLoan(loan)}
+                            className="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors"
+                            title="Delete Loan Record"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))
