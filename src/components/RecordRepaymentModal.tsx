@@ -22,6 +22,13 @@ interface RecordRepaymentModalProps {
   onLoanClosed?: (loan: Loan) => void;
 }
 
+const METHOD_PRESETS: Record<'Cash' | 'UPI' | 'Bank Transfer' | 'Cheque', string> = {
+  UPI: 'UTR: ',
+  Cash: 'Cash in counter',
+  'Bank Transfer': 'IMPS/NEFT Ref: ',
+  Cheque: 'Cheque #: ',
+};
+
 export function RecordRepaymentModal({
   isOpen,
   onClose,
@@ -32,7 +39,7 @@ export function RecordRepaymentModal({
   const [paymentType, setPaymentType] = useState<'Interest Payment' | 'Principal Part-Payment' | 'Full Settlement'>('Interest Payment');
   const [paymentAmount, setPaymentAmount] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'UPI' | 'Bank Transfer' | 'Cheque'>('UPI');
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState(METHOD_PRESETS['UPI']);
   const [loading, setLoading] = useState(false);
 
   // Financial calculations
@@ -54,6 +61,14 @@ export function RecordRepaymentModal({
     }
   }, [paymentType, loan, fin.netAccruedInterest]);
 
+  useEffect(() => {
+    const currentPreset = METHOD_PRESETS[paymentMethod];
+    const presetValues = Object.values(METHOD_PRESETS);
+    if (!notes || presetValues.some(p => notes === p || (p.endsWith(': ') && notes.startsWith(p.split(':')[0])))) {
+      setNotes(currentPreset);
+    }
+  }, [paymentMethod]);
+
   if (!isOpen || !loan) return null;
 
   const processRepayment = async (sendWhatsApp: boolean) => {
@@ -69,6 +84,55 @@ export function RecordRepaymentModal({
     if (paymentAmount <= 0) {
       toast.error('Please enter a valid payment amount');
       return;
+    }
+
+    const cleanNotes = notes.trim();
+    if (!cleanNotes) {
+      toast.error('❌ Receipt Notes Required', {
+        description: 'Receipt Notes / Voucher # is mandatory for payment record.',
+      });
+      return;
+    }
+
+    if (paymentMethod === 'UPI') {
+      const utrPart = cleanNotes.replace(/^UTR:\s*/i, '').trim();
+      if (!utrPart || utrPart.length < 6) {
+        toast.error('❌ Invalid UPI UTR Number', {
+          description: 'Please enter a valid UPI UTR / Transaction Reference (e.g. UTR: 998234710293).',
+          duration: 5000,
+        });
+        alert('⚠️ Invalid UPI UTR Number!\n\nPlease enter a valid UPI UTR or Transaction Reference number (e.g. UTR: 998234710293).');
+        return;
+      }
+    } else if (paymentMethod === 'Bank Transfer') {
+      const refPart = cleanNotes.replace(/^(IMPS\/NEFT Ref|NEFT Ref|IMPS Ref):\s*/i, '').trim();
+      if (!refPart || refPart.length < 4) {
+        toast.error('❌ Invalid Bank Transfer Reference', {
+          description: 'Please enter a valid IMPS/NEFT reference number (e.g. IMPS/NEFT Ref: 88712345).',
+          duration: 5000,
+        });
+        alert('⚠️ Invalid Bank Transfer Reference!\n\nPlease enter a valid IMPS/NEFT reference number (e.g. IMPS/NEFT Ref: 88712345).');
+        return;
+      }
+    } else if (paymentMethod === 'Cheque') {
+      const chequePart = cleanNotes.replace(/^Cheque #:\s*/i, '').trim();
+      if (!chequePart || chequePart.length < 3) {
+        toast.error('❌ Invalid Cheque Number', {
+          description: 'Please enter a valid Cheque Number (e.g. Cheque #: 000142).',
+          duration: 5000,
+        });
+        alert('⚠️ Invalid Cheque Number!\n\nPlease enter a valid Cheque Number (e.g. Cheque #: 000142).');
+        return;
+      }
+    } else if (paymentMethod === 'Cash') {
+      if (cleanNotes.length < 3) {
+        toast.error('❌ Invalid Cash Receipt Note', {
+          description: 'Please enter a valid Cash receipt note (e.g. Cash in counter).',
+          duration: 5000,
+        });
+        alert('⚠️ Invalid Cash Receipt Note!\n\nPlease enter a valid Cash receipt note (e.g. Cash in counter).');
+        return;
+      }
     }
 
     setLoading(true);
@@ -264,13 +328,24 @@ export function RecordRepaymentModal({
 
           {/* Remarks Notes */}
           <div>
-            <label className="block text-xs font-bold text-slate-700 mb-1">Receipt Notes / Voucher # (Optional)</label>
+            <label className="block text-xs font-bold text-slate-700 mb-1">
+              Receipt Notes / Voucher # <span className="text-rose-500">*</span> (Mandatory)
+            </label>
             <input
               type="text"
-              placeholder="e.g. GPay Ref #992810 / Cash received at counter"
+              placeholder={
+                paymentMethod === 'UPI'
+                  ? 'e.g. UTR: 998234710293'
+                  : paymentMethod === 'Cash'
+                  ? 'e.g. Cash in counter'
+                  : paymentMethod === 'Bank Transfer'
+                  ? 'e.g. IMPS/NEFT Ref: 88712345'
+                  : 'e.g. Cheque #: 000142'
+              }
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-semibold focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+              required
             />
           </div>
 
