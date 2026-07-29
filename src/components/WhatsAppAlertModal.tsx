@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { Loan, Payment } from '../types';
 import { formatCurrency, formatDate } from '../lib/utils';
+import { db } from '../lib/supabase/supabaseDb';
 import {
   AlertType,
   generateWhatsAppMessageText,
@@ -50,20 +51,51 @@ export function WhatsAppAlertModal({
   const [selectedType, setSelectedType] = useState<AlertType>(defaultType);
   const [messageBody, setMessageBody] = useState<string>('');
   const [customPhone, setCustomPhone] = useState<string>('');
+  const [resolvedPayment, setResolvedPayment] = useState<Payment | null>(payment || null);
 
   useEffect(() => {
-    if (loan) {
+    let isMounted = true;
+    if (isOpen && loan) {
       setSelectedType(defaultType);
       setCustomPhone(loan.customer?.mobile_number || '');
-      const text = generateWhatsAppMessageText(defaultType, { loan, payment });
-      setMessageBody(text);
+
+      const syncLatestPaymentAndMessage = async () => {
+        let activePmt = payment || null;
+        if (!activePmt) {
+          const existing = Array.isArray(loan.payments) ? loan.payments : [];
+          if (existing.length > 0) {
+            const sorted = [...existing].sort((a, b) => new Date(b.created_at || b.payment_date).getTime() - new Date(a.created_at || a.payment_date).getTime());
+            activePmt = sorted[0];
+          } else if (loan.shop_id) {
+            try {
+              const allPmts = await db.getPayments(loan.shop_id);
+              const loanPmts = allPmts.filter(p => p.loan_id === loan.id || p.loan_id === loan.loan_number);
+              if (loanPmts.length > 0) {
+                const sorted = [...loanPmts].sort((a, b) => new Date(b.created_at || b.payment_date).getTime() - new Date(a.created_at || a.payment_date).getTime());
+                activePmt = sorted[0];
+              }
+            } catch (err) {
+              console.warn('WhatsAppAlertModal load payments warning:', err);
+            }
+          }
+        }
+
+        if (isMounted) {
+          setResolvedPayment(activePmt);
+          const text = generateWhatsAppMessageText(defaultType, { loan, payment: activePmt });
+          setMessageBody(text);
+        }
+      };
+
+      syncLatestPaymentAndMessage();
     }
+    return () => { isMounted = false; };
   }, [isOpen, loan, payment, defaultType]);
 
   const handleTemplateChange = (type: AlertType) => {
     setSelectedType(type);
     if (!loan) return;
-    const text = generateWhatsAppMessageText(type, { loan, payment });
+    const text = generateWhatsAppMessageText(type, { loan, payment: resolvedPayment });
     setMessageBody(text);
   };
 

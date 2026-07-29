@@ -46,7 +46,15 @@ export function generateWhatsAppMessageText(type: AlertType, opts: WhatsAppAlert
 
   // Ensure active/new payment is included in financial calculations
   const existingPayments = Array.isArray(loan.payments) ? loan.payments : [];
-  const activePayment = payment || (existingPayments.length > 0 ? existingPayments[0] : null);
+
+  // Sort payments to get the latest 1 repayment (most recent date/created_at first)
+  const sortedPayments = [...existingPayments].sort((a, b) => {
+    const tA = new Date(a.created_at || a.payment_date).getTime();
+    const tB = new Date(b.created_at || b.payment_date).getTime();
+    return tB - tA;
+  });
+
+  const activePayment = payment || (sortedPayments.length > 0 ? sortedPayments[0] : null);
 
   const hasActivePayment = activePayment && existingPayments.some(
     p => (p.id && p.id === activePayment.id) || (p.created_at && p.created_at === activePayment.created_at)
