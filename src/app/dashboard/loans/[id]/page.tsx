@@ -170,10 +170,25 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
 
   const handleDeleteLoan = async () => {
     if (!loan) return;
+
+    if (loan.status === 'Active' || loan.status === 'Overdue') {
+      toast.error(`🚨 Cannot Delete ${loan.status} Loan!`, {
+        description: `Loan ${loan.loan_number} is currently ${loan.status}. Active & Overdue gold loan contracts cannot be deleted. Please perform Full Settlement or Close the loan first.`,
+        duration: 6000,
+      });
+      alert(`🚨 DELETION RESTRICTED!\n\nLoan Contract #${loan.loan_number} is currently "${loan.status}".\n\nActive and Overdue gold loans cannot be deleted from the system.\n\nPlease perform Full Settlement or Close the loan before attempting deletion.`);
+      return;
+    }
+
     if (confirm(`Are you sure you want to delete Loan ${loan.loan_number}? This will permanently purge the loan record.`)) {
-      await db.deleteLoan(loan.id, loan.shop_id);
-      toast.success(`Loan ${loan.loan_number} deleted successfully`);
-      router.push('/dashboard/loans');
+      try {
+        await db.deleteLoan(loan.id, loan.shop_id);
+        toast.success(`Loan ${loan.loan_number} deleted successfully`);
+        router.push('/dashboard/loans');
+      } catch (err: any) {
+        toast.error(`❌ Deletion Blocked`, { description: err.message });
+        alert(`🚨 Deletion Blocked: ${err.message}`);
+      }
     }
   };
 

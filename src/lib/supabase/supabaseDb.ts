@@ -941,13 +941,25 @@ export const db = {
 
   async deleteLoan(loanId: string, shopId?: string): Promise<boolean> {
     const localLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS);
-    const updatedLocal = localLoans.filter(l => l.id !== loanId && l.loan_number !== loanId);
-    setStorageItem('loans', updatedLocal);
+    const existingLocal = localLoans.find(l => l.id === loanId || l.loan_number === loanId);
+    if (existingLocal && (existingLocal.status === 'Active' || existingLocal.status === 'Overdue')) {
+      throw new Error(`Cannot delete an ${existingLocal.status} loan (Loan #${existingLocal.loan_number}). Active & Overdue loans cannot be deleted.`);
+    }
 
     if (isRealSupabase && supabase) {
       try {
         const client = supabaseAdmin || supabase;
         if (client) {
+          const { data: dbLoan } = await client
+            .from('loans')
+            .select('status, loan_number')
+            .or(`id.eq.${loanId},loan_number.eq.${loanId}`)
+            .maybeSingle();
+
+          if (dbLoan && (dbLoan.status === 'Active' || dbLoan.status === 'Overdue')) {
+            throw new Error(`Cannot delete an ${dbLoan.status} loan (Loan #${dbLoan.loan_number}). Active & Overdue loans cannot be deleted.`);
+          }
+
           const { error } = await client
             .from('loans')
             .delete()
@@ -961,10 +973,14 @@ export const db = {
               .or(`id.eq.${loanId},loan_number.eq.${loanId}`);
           }
         }
-      } catch (err) {
+      } catch (err: any) {
+        if (err.message?.includes('Cannot delete an')) throw err;
         console.warn('deleteLoan error:', err);
       }
     }
+
+    const updatedLocal = localLoans.filter(l => l.id !== loanId && l.loan_number !== loanId);
+    setStorageItem('loans', updatedLocal);
 
     broadcastDbUpdate('loans');
     return true;
