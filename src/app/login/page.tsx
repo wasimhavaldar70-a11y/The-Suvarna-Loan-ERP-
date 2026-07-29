@@ -49,7 +49,8 @@ export default function LoginPage() {
     }
 
     try {
-      const cleanEmail = email.trim().toLowerCase();
+      let cleanEmail = email.trim().toLowerCase();
+      const cleanPassword = password.trim();
 
       // ── Step 1: Authenticate via Supabase Auth (MANDATORY) ──
       if (!isRealSupabase || !supabase) {
@@ -58,15 +59,37 @@ export default function LoginPage() {
         return;
       }
 
+      // Build email alias fallbacks (handles jewellers vs jewlers spelling differences)
+      const emailAliases: string[] = [cleanEmail];
+      if (cleanEmail.includes('jewellers')) {
+        emailAliases.push(cleanEmail.replace('jewellers', 'jewlers'));
+      } else if (cleanEmail.includes('jewlers')) {
+        emailAliases.push(cleanEmail.replace('jewlers', 'jewellers'));
+      }
+
       let authUser: any = null;
+      let lastAuthErr: string = '';
+
       try {
-        const { data: authData, error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
-        if (error) {
-          setErrorMsg(`❌ Invalid Credentials: ${error.message}`);
+        for (const targetEmail of emailAliases) {
+          const { data: authData, error } = await supabase.auth.signInWithPassword({
+            email: targetEmail,
+            password: cleanPassword,
+          });
+          if (!error && authData?.user) {
+            authUser = authData.user;
+            cleanEmail = targetEmail;
+            break;
+          } else if (error) {
+            lastAuthErr = error.message;
+          }
+        }
+
+        if (!authUser) {
+          setErrorMsg(`❌ Invalid Credentials: ${lastAuthErr || 'Invalid login credentials'}`);
           setLoading(false);
           return;
         }
-        authUser = authData?.user;
       } catch (authErr: any) {
         setErrorMsg(`❌ Authentication Error: ${authErr?.message || 'Unable to connect to auth service.'}`);
         setLoading(false);
