@@ -82,7 +82,7 @@ export function RecordRepaymentModal({
         amount: paymentAmount,
         payment_date: new Date().toISOString().split('T')[0],
         payment_method: paymentMethod,
-        notes: notes || `${paymentType} recorded via ${paymentMethod}`,
+        notes: notes ? notes.trim() : '',
         created_at: new Date().toISOString(),
       };
 

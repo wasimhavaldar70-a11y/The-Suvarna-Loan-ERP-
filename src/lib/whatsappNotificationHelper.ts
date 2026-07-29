@@ -102,7 +102,8 @@ export function generateWhatsAppMessageText(type: AlertType, opts: WhatsAppAlert
       const pType = activePayment ? activePayment.payment_type : 'Repayment';
       const pDate = activePayment ? formatDate(activePayment.payment_date) : formatDate(new Date().toISOString());
       const pMethod = activePayment ? activePayment.payment_method : 'Cash / UPI';
-      const pNotes = activePayment?.notes?.trim() || '';
+      const rawNotes = activePayment?.notes?.trim() || '';
+      const pNotes = rawNotes.includes('recorded via') ? '' : rawNotes;
 
       return (
         `*✅ PAYMENT RECEIPT CONFIRMATION*\n` +
@@ -124,7 +125,8 @@ export function generateWhatsAppMessageText(type: AlertType, opts: WhatsAppAlert
     }
 
     case 'LOAN_CLOSURE': {
-      const pNotes = activePayment?.notes?.trim() || '';
+      const rawNotes = activePayment?.notes?.trim() || '';
+      const pNotes = rawNotes.includes('recorded via') ? '' : rawNotes;
       return (
         `*🎉 GOLD LOAN CLOSURE & NO DUE CERTIFICATE*\n` +
         `*${shopName}*\n\n` +
