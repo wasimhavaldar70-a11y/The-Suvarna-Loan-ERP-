@@ -66,6 +66,16 @@ export default function CustomerAlertsPage() {
   const [selectedType, setSelectedType] = useState<AlertType>('MONTHLY_DUE');
   const [customPhone, setCustomPhone] = useState<string>('');
   const [messageText, setMessageText] = useState<string>('');
+  const [dispatchLogs, setDispatchLogs] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('sl_whatsapp_dispatch_logs');
+      if (stored) {
+        try { setDispatchLogs(JSON.parse(stored)); } catch (e) {}
+      }
+    }
+  }, []);
 
   const DEFAULT_NAMES = ['Snehal Patil', 'Ramesh Gaikwad', 'Mahesh Patil', 'Suhani Havaldar', 'Ramesh Shah', 'Priya Sharma', 'Vijay Deshmukh'];
   const DEFAULT_PHONES = ['9876543210', '9822012345', '9423098765', '7058536371', '9850123456', '9764123456', '9923123456'];
@@ -149,6 +159,25 @@ export default function CustomerAlertsPage() {
     if (!selectedLoan) return;
     const targetPhone = customPhone || getCustomerMobile(selectedLoan.customer);
     sendWhatsAppAlert(targetPhone, messageText);
+
+    // Record dispatched WhatsApp Log entry
+    const newLog = {
+      id: `wa-${Date.now()}`,
+      timestamp: new Date().toISOString(),
+      customerName: getCustomerName(selectedLoan.customer),
+      phone: targetPhone,
+      loanNumber: selectedLoan.loan_number,
+      alertType: selectedType,
+      messageSnippet: messageText.slice(0, 120),
+      status: 'Sent via WhatsApp Web',
+    };
+
+    const updated = [newLog, ...dispatchLogs.slice(0, 49)];
+    setDispatchLogs(updated);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('sl_whatsapp_dispatch_logs', JSON.stringify(updated));
+    }
+
     toast.success(`Launched WhatsApp alert for ${getCustomerName(selectedLoan.customer)}`);
   };
 
@@ -675,6 +704,84 @@ export default function CustomerAlertsPage() {
               })()
             )}
           </div>
+        </div>
+
+        {/* WhatsApp Dispatch Audit Trail Logs Section */}
+        <div className="mt-8 bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+          <div className="flex items-center justify-between pb-4 border-b border-slate-100 mb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 bg-emerald-100 rounded-xl text-emerald-700">
+                <MessageSquare className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900">WhatsApp Logs Audit Trail</h3>
+                <p className="text-xs text-slate-500">History of customer alerts and payment reminders dispatched from this shop</p>
+              </div>
+            </div>
+            {dispatchLogs.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDispatchLogs([]);
+                  if (typeof window !== 'undefined') localStorage.removeItem('sl_whatsapp_dispatch_logs');
+                  toast.success('Cleared WhatsApp Logs History');
+                }}
+                className="text-xs text-slate-400 hover:text-rose-600 transition-colors"
+              >
+                Clear History
+              </button>
+            )}
+          </div>
+
+          {dispatchLogs.length === 0 ? (
+            <div className="text-center py-8 text-slate-400 text-xs font-medium">
+              No WhatsApp messages logged yet. Launch an alert above to create your first log entry.
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
+                    <th className="py-2.5 px-3">Date & Time</th>
+                    <th className="py-2.5 px-3">Customer</th>
+                    <th className="py-2.5 px-3">Mobile</th>
+                    <th className="py-2.5 px-3">Contract #</th>
+                    <th className="py-2.5 px-3">Alert Type</th>
+                    <th className="py-2.5 px-3">Status</th>
+                    <th className="py-2.5 px-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
+                  {dispatchLogs.map((log) => (
+                    <tr key={log.id} className="hover:bg-slate-50/80 transition-colors">
+                      <td className="py-3 px-3 text-slate-500">{new Date(log.timestamp).toLocaleString()}</td>
+                      <td className="py-3 px-3 font-bold text-slate-900">{log.customerName}</td>
+                      <td className="py-3 px-3 font-mono text-slate-600">{log.phone}</td>
+                      <td className="py-3 px-3 font-mono text-amber-700 font-bold">{log.loanNumber}</td>
+                      <td className="py-3 px-3">
+                        <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-100 text-emerald-800 border border-emerald-200">
+                          {log.alertType}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-emerald-600 font-semibold">{log.status}</td>
+                      <td className="py-3 px-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            sendWhatsAppAlert(log.phone, log.messageSnippet);
+                            toast.success(`Resent WhatsApp to ${log.customerName}`);
+                          }}
+                          className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[11px] font-bold transition-colors"
+                        >
+                          Re-send
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     </DashboardLayout>

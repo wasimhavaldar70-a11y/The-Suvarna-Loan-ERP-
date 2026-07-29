@@ -26,6 +26,7 @@ import {
   TrendingUp,
   Building2,
   Bell,
+  MessageSquare,
   Search,
   Lock,
   RefreshCw,
@@ -237,7 +238,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       items: [
         { label: 'Gold Loans', href: '/dashboard/loans', icon: Coins },
         { label: 'Customers', href: '/dashboard/customers', icon: Users },
-        { label: 'Customer Alerts & WhatsApp', href: '/dashboard/alerts', icon: Bell },
+        { label: 'WhatsApp Logs', href: '/dashboard/whatsapp-logs', icon: MessageSquare },
         { label: 'Vault & Safe Stock', href: '/dashboard/gold-items', icon: Package },
         { label: 'Gold Calculator', href: '/dashboard/valuation', icon: Calculator },
         { label: 'Payments & Receipts', href: '/dashboard/payments', icon: Receipt },
