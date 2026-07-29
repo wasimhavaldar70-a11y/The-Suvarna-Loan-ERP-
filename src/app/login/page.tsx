@@ -8,7 +8,7 @@
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Coins, ShieldCheck, UserCheck, ArrowRight, Lock, Sparkles, Building2, Send, CheckCircle2 } from 'lucide-react';
+import { Coins, ShieldCheck, UserCheck, ArrowRight, Lock, Sparkles, Building2, Send, CheckCircle2, Eye, EyeOff } from 'lucide-react';
 import { setSessionUser, supabase, isRealSupabase } from '../../lib/supabase/client';
 import { db } from '../../lib/supabase/supabaseDb';
 import { UserRole, User, Shop } from '../../types';
@@ -20,6 +20,7 @@ export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [activationSent, setActivationSent] = useState(false);
@@ -306,13 +307,23 @@ export default function LoginPage() {
 
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">Account Password</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-900 focus:outline-none focus:border-amber-500 focus:bg-white focus:ring-4 focus:ring-amber-500/10 transition-all"
-                required
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full pl-4 pr-11 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-900 focus:outline-none focus:border-amber-500 focus:bg-white focus:ring-4 focus:ring-amber-500/10 transition-all"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-amber-600 transition-colors rounded-xl focus:outline-none"
+                  title={showPassword ? 'Hide Password' : 'Show Password'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             {/* Action Submit Button */}
