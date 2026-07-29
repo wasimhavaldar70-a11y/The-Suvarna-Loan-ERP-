@@ -620,7 +620,7 @@ export const db = {
       try {
         const client = supabaseAdmin || supabase;
         if (client) {
-          const { customer, loans, version, ...dbPayload } = newItem as any;
+          const { customer, loans, version, request_uuid, ...dbPayload } = newItem as any;
           let { error } = await client.from('gold_items').insert(dbPayload);
           if (error && (error.message.includes('duplicate key') || error.message.includes('gold_items_pkey'))) {
             const retryId = `item-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -885,7 +885,7 @@ export const db = {
       try {
         const client = supabaseAdmin || supabase;
         if (client) {
-          const { customer, gold_item, payments, accrued_interest, total_balance_due, version, ...dbPayload } = newLoan as any;
+          const { customer, gold_item, payments, accrued_interest, total_balance_due, version, request_uuid, ...dbPayload } = newLoan as any;
           let { error } = await client.from('loans').insert(dbPayload);
 
           if (error && (error.message.includes('duplicate key') || error.message.includes('loans_pkey') || error.message.includes('loans_loan_number_key'))) {
@@ -1022,7 +1022,8 @@ export const db = {
 
     if (isRealSupabase && supabase) {
       try {
-        const { data, error } = await supabase.from('payments').insert(newPmt).select().single();
+        const { loan, version, request_uuid, ...dbPayload } = newPmt as any;
+        const { data, error } = await supabase.from('payments').insert(dbPayload).select().single();
         if (!error && data) {
           resultPmt = data as Payment;
         } else if (error) {
