@@ -462,9 +462,10 @@ export const db = {
       }
     }
 
+    const { request_uuid: _reqUuid, ...cleanCustomerData } = customer;
     const custId = customer.id || (await generateNextCustomerId(customer.shop_id));
     const newCust: Customer = {
-      ...customer,
+      ...cleanCustomerData,
       id: custId,
       created_at: new Date().toISOString(),
     };
@@ -477,7 +478,7 @@ export const db = {
       try {
         const client = supabaseAdmin || supabase;
         if (client) {
-          const { total_loans_count, active_loans_count, version, ...dbPayload } = newCust as any;
+          const { total_loans_count, active_loans_count, version, request_uuid, ...dbPayload } = newCust as any;
           let { data, error } = await client.from('customers').insert(dbPayload).select().single();
           if (error && (error.message.includes('duplicate key') || error.message.includes('customers_pkey'))) {
             const retryId = `cust-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
