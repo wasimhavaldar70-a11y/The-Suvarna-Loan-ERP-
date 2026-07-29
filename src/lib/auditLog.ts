@@ -116,3 +116,76 @@ export async function getAuditLogs(shopId: string): Promise<AuditLog[]> {
     },
   ];
 }
+
+/**
+ * Fetch all platform audit logs across all tenant shops for Super Admin Dashboard
+ */
+export async function getAllAuditLogs(): Promise<AuditLog[]> {
+  if (isRealSupabase && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('audit_logs')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (!error && data && data.length) return data as AuditLog[];
+    } catch (err) {
+      console.warn('Supabase getAllAuditLogs error:', err);
+    }
+  }
+
+  if (typeof window !== 'undefined') {
+    const raw = localStorage.getItem('sl_audit_logs');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.length) return parsed;
+    }
+  }
+
+  return [
+    {
+      id: 'audit-sa-01',
+      shop_id: 'SHOP-705853',
+      user_id: 'user-superadmin',
+      user_name: 'Super Admin (Wasim)',
+      action: 'CREATE',
+      table_name: 'Tenant Provisioning',
+      record_id: 'SHOP-705853',
+      new_data: { shop: 'Suvarna Jewellers', plan: 'Professional' },
+      created_at: new Date(Date.now() - 1000 * 60 * 10).toISOString(),
+    },
+    {
+      id: 'audit-sa-02',
+      shop_id: 'SHOP-705853',
+      user_id: 'user-001',
+      user_name: 'Mahesh Jewellers (Owner)',
+      action: 'LOGIN',
+      table_name: 'User Authentication',
+      record_id: 'AUTH-992',
+      new_data: { status: 'Success', role: 'Shop Owner' },
+      created_at: new Date(Date.now() - 1000 * 60 * 25).toISOString(),
+    },
+    {
+      id: 'audit-sa-03',
+      shop_id: 'SHOP-705853',
+      user_id: 'user-001',
+      user_name: 'Shop Owner',
+      action: 'CREATE',
+      table_name: 'Gold Loan Contract',
+      record_id: 'GL-2026-994',
+      new_data: { amount: 125000, customer: 'Ramesh Shah' },
+      created_at: new Date(Date.now() - 1000 * 60 * 55).toISOString(),
+    },
+    {
+      id: 'audit-sa-04',
+      shop_id: 'SHOP-705853',
+      user_id: 'user-001',
+      user_name: 'Cashier',
+      action: 'UPDATE',
+      table_name: 'Repayment Collected',
+      record_id: 'PAY-1082',
+      new_data: { amount: 3300, mode: 'UPI' },
+      created_at: new Date(Date.now() - 1000 * 60 * 110).toISOString(),
+    },
+  ];
+}

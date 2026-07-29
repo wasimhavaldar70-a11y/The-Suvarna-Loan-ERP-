@@ -32,7 +32,8 @@ import {
 } from 'lucide-react';
 import { onboardNewTenant, TenantRegistrationInput, generateNextShopId } from '../../../lib/onboardTenant';
 import { db } from '../../../lib/supabase/supabaseDb';
-import { Shop } from '../../../types';
+import { getAllAuditLogs } from '../../../lib/auditLog';
+import { Shop, AuditLog } from '../../../types';
 import { formatCurrency, formatWeight } from '../../../lib/utils';
 import { toast } from 'sonner';
 
@@ -46,6 +47,13 @@ export default function SuperAdminDashboardPage() {
   const [resetModalShop, setResetModalShop] = useState<Shop | null>(null);
   const [newDirectPassword, setNewDirectPassword] = useState('password123');
   const [deleteModalShop, setDeleteModalShop] = useState<Shop | null>(null);
+
+  // Super Admin Tab & Audit Log State
+  const [activeTab, setActiveTab] = useState<'SHOPS' | 'AUDIT_LOGS'>('SHOPS');
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
+  const [loadingAudit, setLoadingAudit] = useState(false);
+  const [auditSearch, setAuditSearch] = useState('');
+  const [auditActionFilter, setAuditActionFilter] = useState('ALL');
 
   // Onboarding Form State
   const [autoShopId, setAutoShopId] = useState('');
@@ -85,6 +93,24 @@ export default function SuperAdminDashboardPage() {
       setLoading(false);
     }
   };
+
+  const loadAuditLogs = async () => {
+    setLoadingAudit(true);
+    try {
+      const fetchedLogs = await getAllAuditLogs();
+      setAuditLogs(fetchedLogs || []);
+    } catch (err) {
+      console.warn('Load audit logs error:', err);
+    } finally {
+      setLoadingAudit(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'AUDIT_LOGS') {
+      loadAuditLogs();
+    }
+  }, [activeTab]);
 
   const handleProvisionShopOwner = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -316,8 +342,40 @@ export default function SuperAdminDashboardPage() {
           </div>
         </div>
 
-        {/* Search & Filter Bar */}
-        <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
+        {/* Super Admin Dashboard Navigation Tabs */}
+        <div className="flex items-center gap-2 bg-slate-900 p-1.5 rounded-2xl border border-slate-800 text-xs font-bold w-fit">
+          <button
+            onClick={() => setActiveTab('SHOPS')}
+            className={`px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 ${
+              activeTab === 'SHOPS'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Building2 className="w-4 h-4" />
+            <span>Onboarded Partner Shops ({shops.length})</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveTab('AUDIT_LOGS');
+              loadAuditLogs();
+            }}
+            className={`px-4 py-2.5 rounded-xl transition-all flex items-center gap-2 ${
+              activeTab === 'AUDIT_LOGS'
+                ? 'bg-amber-500 text-slate-950 font-black shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <ShieldCheck className="w-4 h-4" />
+            <span>Platform Audit Logs ({auditLogs.length})</span>
+          </button>
+        </div>
+
+        {activeTab === 'SHOPS' ? (
+          <>
+            {/* Search & Filter Bar */}
+            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="relative w-full md:w-80">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
             <input
@@ -463,6 +521,123 @@ export default function SuperAdminDashboardPage() {
             </table>
           </div>
         </div>
+        </>
+        ) : (
+          /* Platform Audit Logs Section - Super Admin Dashboard Exclusive */
+          <div className="space-y-4">
+            <div className="bg-slate-900 p-4 rounded-2xl border border-slate-800 shadow-xl flex flex-col md:flex-row items-center justify-between gap-4">
+              <div className="relative w-full md:w-80">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  value={auditSearch}
+                  onChange={(e) => setAuditSearch(e.target.value)}
+                  placeholder="Search user, shop ID, or table..."
+                  className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs font-semibold text-white focus:outline-none focus:border-amber-500 transition-colors"
+                />
+              </div>
+
+              <div className="flex items-center gap-1 bg-slate-950 p-1 rounded-xl text-xs font-bold w-full md:w-auto overflow-x-auto">
+                {['ALL', 'CREATE', 'UPDATE', 'DELETE', 'LOGIN', 'ACTIVATION_REQUEST'].map((act) => (
+                  <button
+                    key={act}
+                    onClick={() => setAuditActionFilter(act)}
+                    className={`px-3 py-1.5 rounded-lg transition-all ${
+                      auditActionFilter === act ? 'bg-amber-500 text-slate-950 font-black' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {act}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="bg-slate-900 rounded-3xl border border-slate-800 shadow-2xl overflow-hidden">
+              <div className="p-4 border-b border-slate-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-amber-400" />
+                  <h3 className="text-sm font-extrabold text-white">System Audit & Compliance Log Trail</h3>
+                </div>
+                <span className="text-xs text-slate-400 font-semibold">
+                  Showing {auditLogs.filter(l => {
+                    const q = auditSearch.toLowerCase();
+                    const matchQ = (l.user_name || '').toLowerCase().includes(q) ||
+                      (l.table_name || '').toLowerCase().includes(q) ||
+                      (l.shop_id || '').toLowerCase().includes(q) ||
+                      (l.record_id || '').toLowerCase().includes(q);
+                    if (!matchQ) return false;
+                    if (auditActionFilter === 'ALL') return true;
+                    return l.action === auditActionFilter;
+                  }).length} Logs
+                </span>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-950 border-b border-slate-800 text-slate-400 font-extrabold uppercase tracking-wider">
+                      <th className="py-3.5 px-4">Date & Time</th>
+                      <th className="py-3.5 px-4">Shop ID</th>
+                      <th className="py-3.5 px-4">User & Role</th>
+                      <th className="py-3.5 px-4">Action</th>
+                      <th className="py-3.5 px-4">Module / Table</th>
+                      <th className="py-3.5 px-4">Record ID & Payload</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 font-medium">
+                    {auditLogs
+                      .filter(l => {
+                        const q = auditSearch.toLowerCase();
+                        const matchQ = (l.user_name || '').toLowerCase().includes(q) ||
+                          (l.table_name || '').toLowerCase().includes(q) ||
+                          (l.shop_id || '').toLowerCase().includes(q) ||
+                          (l.record_id || '').toLowerCase().includes(q);
+                        if (!matchQ) return false;
+                        if (auditActionFilter === 'ALL') return true;
+                        return l.action === auditActionFilter;
+                      })
+                      .map((log) => (
+                        <tr key={log.id} className="hover:bg-slate-800/40 transition-colors text-slate-300">
+                          <td className="py-3.5 px-4 text-slate-400 font-mono">
+                            {new Date(log.created_at).toLocaleString()}
+                          </td>
+                          <td className="py-3.5 px-4 font-mono font-bold text-amber-400">
+                            {log.shop_id || 'Global / System'}
+                          </td>
+                          <td className="py-3.5 px-4 font-bold text-white">
+                            {log.user_name || log.user_id || 'System'}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-black border ${
+                              log.action === 'CREATE' ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' :
+                              log.action === 'UPDATE' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' :
+                              log.action === 'DELETE' ? 'bg-rose-500/10 text-rose-400 border-rose-500/20' :
+                              'bg-sky-500/10 text-sky-400 border-sky-500/20'
+                            }`}>
+                              {log.action}
+                            </span>
+                          </td>
+                          <td className="py-3.5 px-4 font-semibold text-slate-200">
+                            {log.table_name}
+                          </td>
+                          <td className="py-3.5 px-4">
+                            <div className="font-mono text-[11px] text-slate-300 max-w-xs truncate">
+                              <span className="text-amber-300 font-bold">{log.record_id || '—'}</span>
+                              {log.new_data && (
+                                <span className="text-slate-400 ml-2">
+                                  {JSON.stringify(log.new_data)}
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Shop Owner Account Provisioning Modal */}
         {provisionModalOpen && (
