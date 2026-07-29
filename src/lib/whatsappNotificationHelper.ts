@@ -94,6 +94,7 @@ export function generateWhatsAppMessageText(type: AlertType, opts: WhatsAppAlert
       const pType = activePayment ? activePayment.payment_type : 'Repayment';
       const pDate = activePayment ? formatDate(activePayment.payment_date) : formatDate(new Date().toISOString());
       const pMethod = activePayment ? activePayment.payment_method : 'Cash / UPI';
+      const pNotes = activePayment?.notes?.trim() || '';
 
       return (
         `*✅ PAYMENT RECEIPT CONFIRMATION*\n` +
@@ -104,6 +105,7 @@ export function generateWhatsAppMessageText(type: AlertType, opts: WhatsAppAlert
         `💵 *Amount Received:* ${pAmt}\n` +
         `📝 *Payment Type:* ${pType}\n` +
         `💳 *Mode:* ${pMethod}\n` +
+        (pNotes ? `📌 *Payment Notes:* ${pNotes}\n` : '') +
         `📅 *Receipt Date:* ${pDate}\n\n` +
         `📊 *UPDATED ACCOUNT STATUS:*\n` +
         `▫️ *Remaining Principal:* ${formatCurrency(financials.remainingPrincipal)}\n` +
@@ -114,6 +116,7 @@ export function generateWhatsAppMessageText(type: AlertType, opts: WhatsAppAlert
     }
 
     case 'LOAN_CLOSURE': {
+      const pNotes = activePayment?.notes?.trim() || '';
       return (
         `*🎉 GOLD LOAN CLOSURE & NO DUE CERTIFICATE*\n` +
         `*${shopName}*\n\n` +
@@ -123,7 +126,9 @@ export function generateWhatsAppMessageText(type: AlertType, opts: WhatsAppAlert
         `▫️ *Sanction Loan:* ${formatCurrency(loan.loan_amount)}\n` +
         `▫️ *Total Interest Paid:* ${formatCurrency(financials.totalInterestPaid)}\n` +
         `▫️ *Outstanding Dues:* ₹0.00 (PAID IN FULL)\n` +
-        `▫️ *Pledged Ornament:* ${ornament} (${weight})\n\n` +
+        `▫️ *Pledged Ornament:* ${ornament} (${weight})\n` +
+        (pNotes ? `📌 *Payment Notes:* ${pNotes}\n` : '') +
+        `\n` +
         `📄 Your *No Due Certificate* and *Gold Asset Release Receipt* have been generated and issued.\n` +
         `Please collect your gold ornament from our vault locker.\n\n` +
         `Thank you for trusting *${shopName}*! We look forward to serving you again. 🌟`
