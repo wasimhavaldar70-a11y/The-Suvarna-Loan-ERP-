@@ -42,7 +42,9 @@ export function RecordRepaymentModal({
 
   useEffect(() => {
     if (loan) {
-      if (paymentType === 'Interest Payment') {
+      if (fin.netAccruedInterest <= 0 && paymentType === 'Interest Payment') {
+        setPaymentType('Principal Part-Payment');
+      } else if (paymentType === 'Interest Payment') {
         setPaymentAmount(Math.max(0, fin.netAccruedInterest || Math.round(loan.loan_amount * (loan.interest_rate / 100))));
       } else if (paymentType === 'Full Settlement') {
         setPaymentAmount(Math.max(0, fin.totalBalanceDue || loan.loan_amount));
@@ -50,11 +52,20 @@ export function RecordRepaymentModal({
         setPaymentAmount(Math.round(loan.loan_amount * 0.25));
       }
     }
-  }, [paymentType, loan]);
+  }, [paymentType, loan, fin.netAccruedInterest]);
 
   if (!isOpen || !loan) return null;
 
   const processRepayment = async (sendWhatsApp: boolean) => {
+    if (paymentType === 'Interest Payment' && fin.netAccruedInterest <= 0) {
+      toast.error('🚨 Interest Payment Not Allowed', {
+        description: 'This loan currently has ₹0 accrued interest due. Interest repayment is only applicable when there is accrued interest.',
+        duration: 6000,
+      });
+      alert('⚠️ Interest Repayment Restricted!\n\nThis loan currently has ₹0 accrued interest due.\n\nInterest payments can only be processed when there is pending accrued interest on the loan contract. Please select Part Principal or Full Settlement instead.');
+      return;
+    }
+
     if (paymentAmount <= 0) {
       toast.error('Please enter a valid payment amount');
       return;
@@ -160,20 +171,39 @@ export function RecordRepaymentModal({
         </div>
 
         <form onSubmit={(e) => { e.preventDefault(); processRepayment(true); }} className="space-y-4">
+          {fin.netAccruedInterest <= 0 && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-xs font-semibold text-amber-900 flex items-center gap-2">
+              <div className="w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+              <span>Notice: This loan contract currently has <strong>₹0 Accrued Interest</strong>. Interest repayment is disabled until interest accumulates over time.</span>
+            </div>
+          )}
+
           {/* Payment Type Options */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Repayment Purpose</label>
             <div className="grid grid-cols-3 gap-2">
               <button
                 type="button"
-                onClick={() => setPaymentType('Interest Payment')}
+                onClick={() => {
+                  if (fin.netAccruedInterest <= 0) {
+                    toast.error('🚨 Interest Payment Restricted', {
+                      description: 'This loan currently has ₹0 accrued interest. Select Part Principal or Full Settlement instead.',
+                    });
+                    return;
+                  }
+                  setPaymentType('Interest Payment');
+                }}
+                disabled={fin.netAccruedInterest <= 0}
+                title={fin.netAccruedInterest <= 0 ? 'No accrued interest due on this loan' : 'Repay Interest Only'}
                 className={`py-2 px-2.5 rounded-xl border text-xs font-bold transition-all text-center ${
-                  paymentType === 'Interest Payment'
+                  fin.netAccruedInterest <= 0
+                    ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
+                    : paymentType === 'Interest Payment'
                     ? 'bg-amber-500 text-slate-950 border-amber-500 shadow-2xs'
                     : 'bg-slate-50 text-slate-700 border-slate-200 hover:border-amber-400'
                 }`}
               >
-                💵 Interest Only
+                💵 Interest Only {fin.netAccruedInterest <= 0 && '(₹0 Due)'}
               </button>
 
               <button
