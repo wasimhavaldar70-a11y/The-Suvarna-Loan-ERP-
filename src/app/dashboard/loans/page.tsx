@@ -5,7 +5,7 @@
 // Location: src/app/dashboard/loans/page.tsx
 // ========================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import { Coins, Plus, Search, Filter, FileSpreadsheet, Eye, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -42,27 +42,41 @@ export default function LoansPage() {
     loadLoans();
   }, []);
 
-  const filtered = loans.filter((l) => {
-    const cust = l.customer?.full_name || '';
-    const num = l.loan_number || '';
-    const matchesSearch = cust.toLowerCase().includes(search.toLowerCase()) || num.toLowerCase().includes(search.toLowerCase());
-    const matchesStatus = statusFilter === 'ALL' ? l.status !== 'Closed' : l.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filtered = useMemo(() => {
+    const query = search.toLowerCase().trim();
+    return loans.filter((l) => {
+      const cust = l.customer?.full_name || '';
+      const mobile = l.customer?.mobile_number || '';
+      const num = l.loan_number || '';
+      const matchesSearch = cust.toLowerCase().includes(query) || mobile.toLowerCase().includes(query) || num.toLowerCase().includes(query);
+      const matchesStatus = statusFilter === 'ALL' ? l.status !== 'Closed' : l.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [loans, search, statusFilter]);
 
   const handleExport = () => {
-    const rows = filtered.map((l) => ({
-      'Loan Number': l.loan_number,
-      'Customer': l.customer?.full_name,
-      'Mobile': l.customer?.mobile_number,
-      'Loan Amount': l.loan_amount,
-      'Interest Rate': `${l.interest_rate}%`,
-      'Ornament': l.gold_item?.ornament_type,
-      'Net Weight': `${l.gold_item?.net_weight} g`,
-      'Loan Date': l.loan_date,
-      'Status': l.status,
+    const loansToExport = filtered.length > 0
+      ? filtered
+      : loans.filter(l => l.status === 'Active' || l.status === 'Overdue' || l.status !== 'Closed');
+
+    if (!loansToExport.length) {
+      toast.error('No active or overdue loan records available to export.');
+      return;
+    }
+
+    const rows = loansToExport.map((l) => ({
+      'Loan Number': l.loan_number || '',
+      'Customer': l.customer?.full_name || 'N/A',
+      'Mobile': l.customer?.mobile_number || 'N/A',
+      'Loan Amount': l.loan_amount || 0,
+      'Interest Rate': `${l.interest_rate || 0}%`,
+      'Ornament': l.gold_item?.ornament_type || 'N/A',
+      'Net Weight': `${l.gold_item?.net_weight || 0} g`,
+      'Loan Date': l.loan_date || '',
+      'Status': l.status || 'Active',
     }));
-    exportToExcel(rows, `Gold_Loans_${new Date().toISOString().split('T')[0]}`);
+    exportToExcel(rows, `Gold_Loans_Register_${new Date().toISOString().split('T')[0]}`);
+    toast.success(`Exported ${rows.length} active & overdue loan contracts to Excel!`);
   };
 
   const handleDeleteLoan = async (loan: Loan) => {

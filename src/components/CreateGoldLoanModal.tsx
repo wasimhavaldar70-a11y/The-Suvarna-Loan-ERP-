@@ -6,7 +6,7 @@
 // ========================================================
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Coins, X, Calculator, Plus, UserCheck, ShieldCheck, Zap, Search, User, Phone, CheckCircle2, Camera, Users, Trash2, Layers, AlertTriangle } from 'lucide-react';
+import { Coins, X, Calculator, Plus, UserCheck, ShieldCheck, Zap, Search, User, Phone, CheckCircle2, Camera, Users, Trash2, Layers, AlertTriangle, Loader2 } from 'lucide-react';
 import { db } from '../lib/supabase/supabaseDb';
 import { getSessionUser } from '../lib/supabase/client';
 import { Customer, GoldItem } from '../types';
@@ -29,12 +29,12 @@ export interface OrnamentItemInput {
   id: string;
   metalType?: 'Gold' | 'Silver';
   ornamentName: string;
-  purity: string;
+  purity: '24K (99.9%)' | '22K (91.6%)' | '20K (83.3%)' | '18K (75.0%)' | '14K (58.5%)';
   grossWeight: number;
   stoneWeight: number;
-  hallmarkNumber: string;
-  lockerNumber: string;
-  photoUrl: string;
+  hallmarkNumber?: string;
+  lockerNumber?: string;
+  photoUrl?: string;
 }
 
 export function CreateGoldLoanModal({
@@ -45,8 +45,8 @@ export function CreateGoldLoanModal({
 }: CreateGoldLoanModalProps) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [existingLoansMap, setExistingLoansMap] = useState<Record<string, any[]>>({});
-  const [goldRate24k, setGoldRate24k] = useState(7650);
-  const [silverRatePerGram, setSilverRatePerGram] = useState(95);
+  const [goldRate24k, setGoldRate24k] = useState<number>(7650);
+  const [silverRatePerGram, setSilverRatePerGram] = useState<number>(92);
 
   // Searchable Customer State
   const [customerSearchQuery, setCustomerSearchQuery] = useState('');
@@ -69,11 +69,22 @@ export function CreateGoldLoanModal({
   const [aadhaarBackUrl, setAadhaarBackUrl] = useState('');
   const [panUrl, setPanUrl] = useState('');
 
+  const isSavingCustomerRef = useRef(false);
   const [savingCustomer, setSavingCustomer] = useState(false);
+  const [savingCustomerStepText, setSavingCustomerStepText] = useState('Saving Customer...');
+  const [savingCustomerSuccess, setSavingCustomerSuccess] = useState(false);
+  const [savingCustomerError, setSavingCustomerError] = useState(false);
 
   const getActiveShopId = () => {
     const session = getSessionUser();
     return session?.user?.shop_id || session?.shop?.id || '';
+  };
+
+  const handleKeyDownCustomerForm = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (savingCustomer || isSavingCustomerRef.current)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
   };
 
   const fetchCustomers = async () => {
@@ -138,7 +149,7 @@ export function CreateGoldLoanModal({
       db.getShop(activeShopId).then((s) => {
         if (s) {
           setGoldRate24k(s.gold_rate_24k || 7650);
-          setSilverRatePerGram(s.silver_rate_per_gram || Number(((s.silver_rate_1kg || 95000) / 1000).toFixed(2)));
+          setSilverRatePerGram(92);
         }
       });
     }
@@ -155,21 +166,17 @@ export function CreateGoldLoanModal({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  const matchingCustomers = customers.filter((c) =>
+    c.full_name.toLowerCase().includes(customerSearchQuery.toLowerCase()) ||
+    c.mobile_number.includes(customerSearchQuery) ||
+    (c.aadhaar_number && c.aadhaar_number.includes(customerSearchQuery))
+  );
+
   const selectedCustomerObj = customers.find((c) => c.id === selectedCustomerId);
   const activeLoansForSelectedCust = selectedCustomerId ? (existingLoansMap[selectedCustomerId] || []) : [];
   const totalActiveAmountForSelectedCust = activeLoansForSelectedCust.reduce((sum, l) => sum + (Number(l.loan_amount) || 0), 0);
 
-  // Filter customers by Name, Mobile Phone, or Aadhaar Card number
-  const matchingCustomers = customers.filter((c) => {
-    const q = customerSearchQuery.trim().toLowerCase();
-    if (!q) return true;
-    const nameMatch = c.full_name.toLowerCase().includes(q);
-    const mobileMatch = c.mobile_number.includes(q);
-    const aadhaarMatch = c.aadhaar_number ? c.aadhaar_number.includes(q) : false;
-    return nameMatch || mobileMatch || aadhaarMatch;
-  });
-
-  // Calculate live valuation per item and sum totals across all ornaments
+  // Compute live multi-item gold & silver valuation
   const itemValuations = ornaments.map((item) =>
     calculateGoldValuation({
       metalType: item.metalType || 'Gold',
@@ -236,69 +243,99 @@ export function CreateGoldLoanModal({
   const handleSaveFullCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const nameCheck = validateFullName(newCustName, 'Full Customer Name');
-    if (!nameCheck.isValid) {
-      toast.error(nameCheck.error);
+    if (isSavingCustomerRef.current || savingCustomer) {
       return;
     }
 
-    const phoneCheck = validatePhone(newCustMobile);
-    if (!phoneCheck.isValid) {
-      toast.error(phoneCheck.error);
-      return;
-    }
+    isSavingCustomerRef.current = true;
+    setSavingCustomer(true);
+    setSavingCustomerSuccess(false);
+    setSavingCustomerError(false);
+    setSavingCustomerStepText('Validating Customer Details...');
 
-    if (!newCustAadhaar || !newCustAadhaar.trim()) {
-      toast.error('Aadhaar Card Number * is mandatory!');
-      return;
-    }
+    const requestUuid = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `req-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
-    const aadhaarCheck = validateAadhaar(newCustAadhaar);
-    if (!aadhaarCheck.isValid) {
-      toast.error(aadhaarCheck.error);
-      return;
-    }
-
-    // Check if customer already exists by Mobile or Aadhaar to prevent duplicate profile creation
-    const cleanMobile = newCustMobile.trim();
-    const cleanAadhaar = newCustAadhaar.trim();
-    const existingCust = customers.find(
-      (c) => c.mobile_number === cleanMobile || (cleanAadhaar && c.aadhaar_number && c.aadhaar_number === cleanAadhaar)
-    );
-
-    if (existingCust) {
-      toast.info(`ℹ️ Customer "${existingCust.full_name}" (${existingCust.mobile_number}) is already registered! Selected existing customer profile for new loan disbursal.`);
-      setSelectedCustomerId(existingCust.id);
-      setCustomerSearchQuery(existingCust.full_name);
-      setRegisterCustomerModalOpen(false);
-      return;
-    }
-
-    if (newCustPan && newCustPan.trim()) {
-      const panCheck = validatePanCard(newCustPan);
-      if (!panCheck.isValid) {
-        toast.error(panCheck.error);
+    try {
+      const nameCheck = validateFullName(newCustName, 'Full Customer Name');
+      if (!nameCheck.isValid) {
+        toast.error(nameCheck.error);
+        isSavingCustomerRef.current = false;
+        setSavingCustomer(false);
         return;
       }
-    }
 
-    if (!photoUrl) {
-      toast.error('Photo Upload * is mandatory!');
-      return;
-    }
+      const phoneCheck = validatePhone(newCustMobile);
+      if (!phoneCheck.isValid) {
+        toast.error(phoneCheck.error);
+        isSavingCustomerRef.current = false;
+        setSavingCustomer(false);
+        return;
+      }
 
-    if (!aadhaarFrontUrl) {
-      toast.error('Aadhaar Card Front * is mandatory!');
-      return;
-    }
+      if (!newCustAadhaar || !newCustAadhaar.trim()) {
+        toast.error('Aadhaar Card Number * is mandatory!');
+        isSavingCustomerRef.current = false;
+        setSavingCustomer(false);
+        return;
+      }
 
-    if (!aadhaarBackUrl) {
-      toast.error('Aadhaar Card Back * is mandatory!');
-      return;
-    }
+      const aadhaarCheck = validateAadhaar(newCustAadhaar);
+      if (!aadhaarCheck.isValid) {
+        toast.error(aadhaarCheck.error);
+        isSavingCustomerRef.current = false;
+        setSavingCustomer(false);
+        return;
+      }
 
-    setSavingCustomer(true);
-    try {
+      // Check if customer already exists by Mobile or Aadhaar to prevent duplicate profile creation
+      const cleanMobile = newCustMobile.trim();
+      const cleanAadhaar = newCustAadhaar.trim();
+      const existingCust = customers.find(
+        (c) => c.mobile_number === cleanMobile || (cleanAadhaar && c.aadhaar_number && c.aadhaar_number === cleanAadhaar)
+      );
+
+      if (existingCust) {
+        toast.info(`ℹ️ Customer "${existingCust.full_name}" (${existingCust.mobile_number}) is already registered! Selected existing customer profile for new loan disbursal.`);
+        setSelectedCustomerId(existingCust.id);
+        setCustomerSearchQuery(existingCust.full_name);
+        setRegisterCustomerModalOpen(false);
+        isSavingCustomerRef.current = false;
+        setSavingCustomer(false);
+        return;
+      }
+
+      if (newCustPan && newCustPan.trim()) {
+        const panCheck = validatePanCard(newCustPan);
+        if (!panCheck.isValid) {
+          toast.error(panCheck.error);
+          isSavingCustomerRef.current = false;
+          setSavingCustomer(false);
+          return;
+        }
+      }
+
+      if (!photoUrl) {
+        toast.error('Photo Upload * is mandatory!');
+        isSavingCustomerRef.current = false;
+        setSavingCustomer(false);
+        return;
+      }
+
+      if (!aadhaarFrontUrl) {
+        toast.error('Aadhaar Card Front * is mandatory!');
+        isSavingCustomerRef.current = false;
+        setSavingCustomer(false);
+        return;
+      }
+
+      if (!aadhaarBackUrl) {
+        toast.error('Aadhaar Card Back * is mandatory!');
+        isSavingCustomerRef.current = false;
+        setSavingCustomer(false);
+        return;
+      }
+
+      setSavingCustomerStepText('Compressing KYC & Uploading Files...');
       const activeShopId = getActiveShopId();
       const preGenCustId = await generateNextCustomerId(activeShopId);
 
@@ -342,6 +379,7 @@ export function CreateGoldLoanModal({
           })
         : '';
 
+      setSavingCustomerStepText('Creating Customer Record...');
       const createdCust = await db.createCustomer({
         id: preGenCustId,
         shop_id: getActiveShopId(),
@@ -359,30 +397,41 @@ export function CreateGoldLoanModal({
         aadhaar_url: finalAadhaarFrontUrl,
         aadhaar_back_url: finalAadhaarBackUrl,
         pan_url: finalPanUrl,
+        request_uuid: requestUuid,
       });
 
-      toast.success(`Customer ${newCustName} registered & saved to database! Selected for Gold Loan disbursal.`);
-      
+      setSavingCustomerSuccess(true);
+      setSavingCustomerStepText('✓ Customer Saved Successfully');
+      toast.success(`✓ Customer ${newCustName} saved successfully! Selected for Gold Loan disbursal.`);
+
       const updatedList = await fetchCustomers();
       setSelectedCustomerId(createdCust.id);
       setCustomerSearchQuery(createdCust.full_name);
 
-      setRegisterCustomerModalOpen(false);
+      setTimeout(() => {
+        setRegisterCustomerModalOpen(false);
 
-      setNewCustName('');
-      setNewCustMobile('');
-      setNewCustAadhaar('');
-      setNewCustPan('');
-      setNewCustAddress('');
-      setPhotoUrl('');
-      setAadhaarFrontUrl('');
-      setAadhaarBackUrl('');
-      setPanUrl('');
-    } catch (err) {
+        setNewCustName('');
+        setNewCustMobile('');
+        setNewCustAadhaar('');
+        setNewCustPan('');
+        setNewCustAddress('');
+        setPhotoUrl('');
+        setAadhaarFrontUrl('');
+        setAadhaarBackUrl('');
+        setPanUrl('');
+        setSavingCustomerSuccess(false);
+        setSavingCustomer(false);
+        setSavingCustomerError(false);
+        isSavingCustomerRef.current = false;
+      }, 700);
+    } catch (err: any) {
       console.error(err);
-      toast.error('Failed to register new customer profile');
-    } finally {
+      toast.error(err?.message || '❌ Unable to Save Customer. Please Try Again.');
+      setSavingCustomerError(true);
+      setSavingCustomerSuccess(false);
       setSavingCustomer(false);
+      isSavingCustomerRef.current = false;
     }
   };
 
@@ -1107,12 +1156,18 @@ export function CreateGoldLoanModal({
                 <Users className="w-5 h-5" />
                 <h3 className="text-base font-bold text-slate-900">Register New Borrower Customer</h3>
               </div>
-              <button onClick={() => setRegisterCustomerModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+              <button
+                disabled={savingCustomer}
+                onClick={() => {
+                  if (!savingCustomer) setRegisterCustomerModalOpen(false);
+                }}
+                className={`text-slate-400 ${savingCustomer ? 'cursor-not-allowed opacity-40' : 'hover:text-slate-600'}`}
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveFullCustomer} className="space-y-5 pt-4">
+            <form onSubmit={handleSaveFullCustomer} onKeyDown={handleKeyDownCustomerForm} className="space-y-5 pt-4">
               {/* Section 1: Basic Details */}
               <div className="space-y-3">
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
@@ -1129,7 +1184,7 @@ export function CreateGoldLoanModal({
                       placeholder="e.g. Ramesh Shah (letters only)"
                       value={newCustName}
                       onChange={(e) => setNewCustName(e.target.value.replace(/[^a-zA-Z\s]/g, ''))}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      className="w-full min-h-[44px] px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none transition-shadow"
                       required
                     />
                   </div>
@@ -1144,7 +1199,7 @@ export function CreateGoldLoanModal({
                       maxLength={10}
                       value={newCustMobile}
                       onChange={(e) => setNewCustMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      className="w-full min-h-[44px] px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none transition-shadow"
                       required
                     />
                     <p className="text-[10px] text-slate-400 mt-0.5">Exactly 10 numeric digits only</p>
@@ -1162,7 +1217,7 @@ export function CreateGoldLoanModal({
                       maxLength={14}
                       value={newCustAadhaar ? newCustAadhaar.replace(/(\d{4})(\d{4})?(\d{4})?/, (_, p1, p2, p3) => [p1, p2, p3].filter(Boolean).join(' ')) : ''}
                       onChange={(e) => setNewCustAadhaar(e.target.value.replace(/\D/g, '').slice(0, 12))}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      className="w-full min-h-[44px] px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none transition-shadow"
                       required
                     />
                     <p className="text-[10px] text-amber-700 font-bold mt-0.5">Format: XXXX XXXX XXXX (12 digits)</p>
@@ -1176,7 +1231,7 @@ export function CreateGoldLoanModal({
                       maxLength={10}
                       value={newCustPan}
                       onChange={(e) => setNewCustPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      className="w-full min-h-[44px] px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none transition-shadow"
                     />
                     <p className="text-[10px] text-slate-400 mt-0.5">Format: ABCDE1234F (5 letters, 4 digits, 1 letter)</p>
                   </div>
@@ -1189,7 +1244,7 @@ export function CreateGoldLoanModal({
                     placeholder="Full street address..."
                     value={newCustAddress}
                     onChange={(e) => setNewCustAddress(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    className="w-full min-h-[50px] px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none transition-shadow"
                   />
                 </div>
               </div>
@@ -1247,17 +1302,47 @@ export function CreateGoldLoanModal({
               <div className="pt-4 flex items-center justify-end gap-2 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setRegisterCustomerModalOpen(false)}
-                  className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  disabled={savingCustomer}
+                  onClick={() => {
+                    if (!savingCustomer) setRegisterCustomerModalOpen(false);
+                  }}
+                  className={`min-h-[44px] px-4 py-2.5 text-xs font-semibold rounded-xl transition-colors focus:ring-2 focus:ring-slate-300 focus:outline-none ${
+                    savingCustomer
+                      ? 'text-slate-300 cursor-not-allowed'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={savingCustomer}
-                  className="px-6 py-2.5 text-xs font-bold bg-amber-500 text-slate-950 hover:bg-amber-600 rounded-xl shadow-md gold-glow transition-all"
+                  aria-busy={savingCustomer}
+                  aria-disabled={savingCustomer}
+                  className={`min-h-[44px] px-6 py-2.5 text-xs font-bold rounded-xl shadow-md transition-all focus:ring-2 focus:ring-amber-500 focus:outline-none flex items-center justify-center gap-2 ${
+                    savingCustomerSuccess
+                      ? 'bg-emerald-600 text-white cursor-not-allowed'
+                      : savingCustomerError
+                      ? 'bg-rose-600 hover:bg-rose-700 text-white gold-glow'
+                      : savingCustomer
+                      ? 'bg-amber-600/80 text-white cursor-not-allowed opacity-90'
+                      : 'bg-amber-500 text-slate-950 hover:bg-amber-600 gold-glow'
+                  }`}
                 >
-                  {savingCustomer ? 'Saving Profile...' : 'Save Customer & Compressed KYC'}
+                  {savingCustomer ? (
+                    <>
+                      {savingCustomerSuccess ? (
+                        <CheckCircle2 className="w-4 h-4 text-white shrink-0" />
+                      ) : (
+                        <Loader2 className="w-4 h-4 animate-spin text-white shrink-0" />
+                      )}
+                      <span>{savingCustomerStepText}</span>
+                    </>
+                  ) : savingCustomerError ? (
+                    <span>Retry Saving Customer</span>
+                  ) : (
+                    <span>Save Customer & Compressed KYC</span>
+                  )}
                 </button>
               </div>
             </form>

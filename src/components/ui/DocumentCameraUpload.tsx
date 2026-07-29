@@ -185,22 +185,22 @@ export function DocumentCameraUpload({
       ) : (
         /* Upload & Camera Trigger Controls */
         <div className="border-2 border-dashed border-slate-200 hover:border-amber-400/80 rounded-xl bg-slate-50/50 p-4 transition-colors">
-          <div className="flex items-center justify-center gap-3">
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <button
               type="button"
               onClick={openCameraModal}
-              className="flex-1 py-2.5 px-3 bg-amber-500/10 text-amber-800 hover:bg-amber-500/20 border border-amber-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
+              className="w-full sm:flex-1 min-h-[44px] py-2.5 px-3 bg-amber-500/10 text-amber-800 hover:bg-amber-500/20 border border-amber-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-2xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
             >
-              <Camera className="w-4 h-4 text-amber-700" />
+              <Camera className="w-4 h-4 text-amber-700 shrink-0" />
               <span>Take Photo (Camera)</span>
             </button>
 
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="flex-1 py-2.5 px-3 bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-2xs"
+              className="w-full sm:flex-1 min-h-[44px] py-2.5 px-3 bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-2xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
             >
-              <Upload className="w-4 h-4 text-slate-600" />
+              <Upload className="w-4 h-4 text-slate-600 shrink-0" />
               <span>Upload Image</span>
             </button>
           </div>
@@ -224,7 +224,7 @@ export function DocumentCameraUpload({
                   stopCameraStream();
                   setCameraModalOpen(false);
                 }}
-                className="text-slate-400 hover:text-white"
+                className="text-slate-400 hover:text-white min-h-[44px] min-w-[44px] flex items-center justify-center"
               >
                 <X className="w-5 h-5" />
               </button>
@@ -246,7 +246,7 @@ export function DocumentCameraUpload({
                   stopCameraStream();
                   setCameraModalOpen(false);
                 }}
-                className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
+                className="min-h-[44px] px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white focus:ring-2 focus:ring-slate-500 focus:outline-none rounded-xl"
               >
                 Cancel
               </button>
@@ -254,9 +254,9 @@ export function DocumentCameraUpload({
               <button
                 type="button"
                 onClick={handleCaptureSnapshot}
-                className="px-6 py-2.5 bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 font-bold text-xs rounded-xl hover:brightness-105 shadow-md gold-glow flex items-center gap-2"
+                className="min-h-[44px] px-6 py-2.5 bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 font-bold text-xs rounded-xl hover:brightness-105 shadow-md gold-glow flex items-center gap-2 focus:ring-2 focus:ring-amber-500 focus:outline-none"
               >
-                <Camera className="w-4 h-4" />
+                <Camera className="w-4 h-4 shrink-0" />
                 <span>Capture & Compress</span>
               </button>
             </div>

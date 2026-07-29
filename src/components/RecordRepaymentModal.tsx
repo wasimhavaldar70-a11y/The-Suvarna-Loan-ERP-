@@ -6,7 +6,7 @@
 // ========================================================
 
 import React, { useState, useEffect } from 'react';
-import { Receipt, X, Coins, CheckCircle2, Wallet, Calendar, ShieldCheck, Printer, ArrowRight } from 'lucide-react';
+import { Receipt, X, Coins, CheckCircle2, Wallet, Calendar, ShieldCheck, Printer, ArrowRight, Send } from 'lucide-react';
 import { db } from '../lib/supabase/supabaseDb';
 import { Loan } from '../types';
 import { formatCurrency, formatDate } from '../lib/utils';
@@ -54,8 +54,7 @@ export function RecordRepaymentModal({
 
   if (!isOpen || !loan) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const processRepayment = async (sendWhatsApp: boolean) => {
     if (paymentAmount <= 0) {
       toast.error('Please enter a valid payment amount');
       return;
@@ -86,12 +85,15 @@ export function RecordRepaymentModal({
 
       toast.success(`Repayment of ${formatCurrency(paymentAmount)} recorded successfully!`);
       
-      // Auto dispatch WhatsApp Payment Receipt
-      const waMessage = generateWhatsAppMessageText(
-        isClosed ? 'LOAN_CLOSURE' : 'REPAYMENT_RECEIPT',
-        { loan, payment: newPayment }
-      );
-      sendWhatsAppAlert(loan.customer?.mobile_number, waMessage);
+      if (sendWhatsApp) {
+        // Auto dispatch WhatsApp Payment Receipt
+        const waMessage = generateWhatsAppMessageText(
+          isClosed ? 'LOAN_CLOSURE' : 'REPAYMENT_RECEIPT',
+          { loan, payment: newPayment }
+        );
+        sendWhatsAppAlert(loan.customer?.mobile_number, waMessage);
+        toast.success(`Dispatched GST Receipt alert to ${loan.customer?.full_name || 'Customer'}`);
+      }
 
       onClose();
       if (onSuccess) onSuccess();
@@ -157,7 +159,7 @@ export function RecordRepaymentModal({
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={(e) => { e.preventDefault(); processRepayment(true); }} className="space-y-4">
           {/* Payment Type Options */}
           <div>
             <label className="block text-xs font-bold text-slate-700 mb-1.5">Select Repayment Purpose</label>
@@ -242,22 +244,36 @@ export function RecordRepaymentModal({
             />
           </div>
 
-          {/* Form Actions */}
-          <div className="pt-4 flex items-center justify-end gap-2 border-t border-slate-100">
+          {/* Form Actions - Two Buttons: 1) Collect 2) Generate GST Receipt & Send */}
+          <div className="pt-4 flex flex-col sm:flex-row items-center justify-end gap-2 border-t border-slate-100">
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+              className="w-full sm:w-auto px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
             >
               Cancel
             </button>
+
+            {/* Button 1: Collect Only */}
             <button
-              type="submit"
+              type="button"
               disabled={loading}
-              className="px-6 py-2.5 text-xs font-bold bg-gradient-to-r from-emerald-600 to-emerald-500 text-white rounded-xl shadow-md hover:brightness-105 transition-all flex items-center gap-2"
+              onClick={() => processRepayment(false)}
+              className="w-full sm:w-auto px-5 py-2.5 text-xs font-extrabold bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5"
             >
-              <Receipt className="w-4 h-4" />
-              <span>{loading ? 'Recording Payment...' : 'Collect & Generate GST Receipt'}</span>
+              <CheckCircle2 className="w-4 h-4 text-slate-950" />
+              <span>{loading ? 'Processing...' : '1) Collect'}</span>
+            </button>
+
+            {/* Button 2: Generate GST Receipt & Send */}
+            <button
+              type="button"
+              disabled={loading}
+              onClick={() => processRepayment(true)}
+              className="w-full sm:w-auto px-5 py-2.5 text-xs font-extrabold bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white rounded-xl shadow-md transition-all flex items-center justify-center gap-1.5"
+            >
+              <Send className="w-4 h-4 text-emerald-100" />
+              <span>{loading ? 'Generating...' : '2) Generate GST Receipt & Send'}</span>
             </button>
           </div>
         </form>

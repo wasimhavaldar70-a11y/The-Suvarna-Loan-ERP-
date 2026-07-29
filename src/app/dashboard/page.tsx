@@ -5,7 +5,7 @@
 // Location: src/app/dashboard/page.tsx
 // ========================================================
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
 import {
   Coins,
@@ -48,8 +48,7 @@ import { LoadingButton } from '../../components/ui/LoadingButton';
 import { CreateGoldLoanModal } from '../../components/CreateGoldLoanModal';
 import { db } from '../../lib/supabase/supabaseDb';
 import { getSessionUser } from '../../lib/supabase/client';
-import { getAuditLogs } from '../../lib/auditLog';
-import { DashboardMetrics, Loan, Customer, GoldItem, AuditLog } from '../../types';
+import { DashboardMetrics, Loan, Customer, GoldItem } from '../../types';
 import { formatCurrency, formatWeight, formatDate } from '../../lib/utils';
 import { calculateGoldValuation } from '../../lib/goldValuationEngine';
 import { exportToExcel } from '../../lib/excel-export';
@@ -62,7 +61,6 @@ export default function DashboardPage() {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [goldItems, setGoldItems] = useState<GoldItem[]>([]);
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [loading, setLoading] = useState(true);
 
   // Filter & Search states
@@ -99,18 +97,16 @@ export default function DashboardPage() {
         return;
       }
 
-      const [m, l, c, g, a] = await Promise.all([
+      const [m, l, c, g] = await Promise.all([
         db.getDashboardMetrics(activeShopId),
         db.getLoans(activeShopId),
         db.getCustomers(activeShopId),
         db.getGoldItems(activeShopId),
-        getAuditLogs(activeShopId),
       ]);
       setMetrics(m);
       setLoans(l);
       setCustomers(c);
       setGoldItems(g);
-      setAuditLogs(a);
       if (c.length) setFormCustId(c[0].id);
     } catch (err) {
       console.error(err);
@@ -137,30 +133,46 @@ export default function DashboardPage() {
     setCalcResult(res);
   }, [calcWeight, calcStones, calcKarat, metrics]);
 
-
-
-  const filteredLoans = loans.filter((l) => {
-    const custName = l.customer?.full_name || '';
-    const num = l.loan_number || '';
-    const matchesSearch = custName.toLowerCase().includes(searchQuery.toLowerCase()) || num.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = statusFilter === 'ALL' ? l.status !== 'Closed' : l.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredLoans = useMemo(() => {
+    const query = searchQuery.toLowerCase().trim();
+    return loans.filter((l) => {
+      const custName = l.customer?.full_name || '';
+      const custMobile = l.customer?.mobile_number || '';
+      const num = l.loan_number || '';
+      const matchesSearch = 
+        custName.toLowerCase().includes(query) ||
+        custMobile.toLowerCase().includes(query) ||
+        num.toLowerCase().includes(query);
+      
+      const matchesStatus = statusFilter === 'ALL' ? l.status !== 'Closed' : l.status === statusFilter;
+      return matchesSearch && matchesStatus;
+    });
+  }, [loans, searchQuery, statusFilter]);
 
   const handleExportData = () => {
-    const exportRows = filteredLoans.map((l) => ({
-      'Loan Number': l.loan_number,
-      'Customer Name': l.customer?.full_name,
-      'Mobile': l.customer?.mobile_number,
-      'Loan Amount (₹)': l.loan_amount,
-      'Monthly Interest Rate (%)': l.interest_rate,
-      'Ornament Type': l.gold_item?.ornament_type,
-      'Purity': l.gold_item?.purity,
-      'Net Gold Weight (g)': l.gold_item?.net_weight,
-      'Disbursement Date': l.loan_date,
-      'Status': l.status,
+    const loansToExport = filteredLoans.length > 0 
+      ? filteredLoans 
+      : loans.filter(l => l.status === 'Active' || l.status === 'Overdue' || l.status !== 'Closed');
+
+    if (!loansToExport.length) {
+      toast.error('No active or overdue loan records available to export.');
+      return;
+    }
+
+    const exportRows = loansToExport.map((l) => ({
+      'Loan Number': l.loan_number || '',
+      'Customer': l.customer?.full_name || 'N/A',
+      'Mobile': l.customer?.mobile_number || 'N/A',
+      'Loan Amount': l.loan_amount || 0,
+      'Interest Rate': `${l.interest_rate || 0}%`,
+      'Ornament': l.gold_item?.ornament_type || 'N/A',
+      'Net Weight': `${l.gold_item?.net_weight || 0} g`,
+      'Loan Date': l.loan_date || '',
+      'Status': l.status || 'Active',
     }));
-    exportToExcel(exportRows, `SuvarnaLoan_Register_${new Date().toISOString().split('T')[0]}`);
+
+    exportToExcel(exportRows, `SuvarnaLoan_Active_Overdue_Register_${new Date().toISOString().split('T')[0]}`);
+    toast.success(`Exported ${exportRows.length} active & overdue loan contracts to Excel!`);
   };
 
   if (loading || !metrics) {
@@ -186,10 +198,16 @@ export default function DashboardPage() {
         {/* Header & Quick Action Buttons */}
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-xl md:text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-              <span>Gold Loan Operations Dashboard</span>
-            </h1>
-            <p className="text-xs text-slate-500 font-medium">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="text-xl md:text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+                <span>Gold Loan Operations Dashboard</span>
+              </h1>
+              <div className="px-3 py-1 bg-amber-100/90 border border-amber-300 rounded-xl text-xs font-bold text-amber-950 flex items-center gap-1.5 shadow-2xs">
+                <Calendar className="w-3.5 h-3.5 text-amber-700 shrink-0" />
+                <span>{new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span>
+              </div>
+            </div>
+            <p className="text-xs text-slate-500 font-medium mt-1">
               Real-time loan portfolio monitoring, valuation analytics & transaction management
             </p>
           </div>
@@ -503,60 +521,6 @@ export default function DashboardPage() {
                 )}
               </tbody>
             </table>
-          </div>
-        </div>
-
-        {/* System Security Audit Log Feed */}
-        <div className="bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-            <div className="flex items-center gap-2">
-              <div className="p-2 bg-amber-100 rounded-xl text-amber-800">
-                <ShieldCheck className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-slate-900">Live Shop Security & Audit Log Feed</h3>
-                <p className="text-[11px] text-slate-500 font-medium">Real-time immutable audit trail of shop operations & user actions</p>
-              </div>
-            </div>
-
-            <Link
-              href="/dashboard/settings"
-              className="text-xs font-bold text-amber-700 hover:text-amber-800 underline flex items-center gap-1"
-            >
-              <span>View Full Audit Log</span>
-              <ArrowUpRight className="w-3.5 h-3.5" />
-            </Link>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {auditLogs.slice(0, 4).map((log) => (
-              <div key={log.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200/80 flex items-start gap-3">
-                <div className="p-2 bg-white rounded-lg border border-slate-200 text-slate-700 font-bold text-xs shrink-0">
-                  <Activity className="w-4 h-4 text-amber-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-1">
-                    <span className="text-xs font-bold text-slate-900 truncate">{log.table_name}</span>
-                    <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase ${
-                      log.action === 'CREATE'
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : log.action === 'UPDATE'
-                        ? 'bg-amber-100 text-amber-900'
-                        : 'bg-rose-100 text-rose-800'
-                    }`}>
-                      {log.action}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-slate-500 font-medium mt-0.5 truncate">
-                    By <strong className="text-slate-700">{log.user_name}</strong> • Record #{log.record_id || 'SYS'}
-                  </p>
-                  <span className="text-[10px] text-slate-400 font-semibold flex items-center gap-1 mt-1">
-                    <Clock className="w-3 h-3 text-slate-400" />
-                    {new Date(log.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })} ({formatDate(log.created_at)})
-                  </span>
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       </div>

@@ -44,6 +44,10 @@ import { logAuditEvent } from '../../../../lib/auditLog';
 import { Loan, Payment } from '../../../../types';
 import { formatCurrency, formatWeight, formatDate } from '../../../../lib/utils';
 import { calculateLoanFinancials, calculateReducingBalanceSchedule } from '../../../../lib/goldValuationEngine';
+import {
+  generateEnterpriseLoanStatementHTML,
+  printHTMLDocument
+} from '../../../../lib/closureDocumentGenerator';
 import { toast } from 'sonner';
 
 export default function LoanDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -123,6 +127,16 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
   useEffect(() => {
     loadLoan();
   }, [resolvedParams.id]);
+
+  const handlePrintEnterpriseStatement = async () => {
+    if (!loan) return;
+    const session = getSessionUser();
+    const activeShopId = loan.shop_id || session?.user?.shop_id || session?.shop?.id || '';
+    const shop = activeShopId ? await db.getShop(activeShopId) : null;
+    const html = generateEnterpriseLoanStatementHTML({ loan, shop });
+    printHTMLDocument(html);
+    toast.success('Generated Enterprise Banking-Grade Loan Statement PDF!');
+  };
 
   const handlePrintReceipt = () => {
     if (typeof window !== 'undefined') {
@@ -218,6 +232,15 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
             >
               <Trash2 className="w-4 h-4 text-rose-600" />
               <span>Delete Loan</span>
+            </button>
+
+            <button
+              onClick={handlePrintEnterpriseStatement}
+              className="px-3.5 py-2 text-xs font-extrabold bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white rounded-xl shadow-md flex items-center gap-1.5 transition-all"
+              title="Print Enterprise Banking Grade Loan Statement PDF"
+            >
+              <Printer className="w-4 h-4 text-amber-100" />
+              <span>Print Enterprise PDF 📜</span>
             </button>
 
             <button

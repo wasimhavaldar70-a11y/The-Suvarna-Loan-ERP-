@@ -185,14 +185,26 @@ export function calculateLoanFinancials(
     const amt = Number(p.amount) || 0;
     if (amt <= 0) return;
 
-    if (p.payment_type === 'Full Settlement') {
+    const pType = (p.payment_type || '').toLowerCase();
+
+    if (pType.includes('full settlement') || pType.includes('closure')) {
       totalPrincipalPaid += remainingPrincipal;
       totalInterestPaid += unpaidInterest;
       remainingPrincipal = 0;
       unpaidInterest = 0;
+    } else if (pType.includes('principal')) {
+      // Direct principal part-payment: subtracts from remaining principal first
+      const partPrincipal = Math.min(amt, remainingPrincipal);
+      remainingPrincipal = Math.max(0, remainingPrincipal - partPrincipal);
+      totalPrincipalPaid += partPrincipal;
+      const excess = amt - partPrincipal;
+      if (excess > 0) {
+        const partInterest = Math.min(excess, unpaidInterest);
+        unpaidInterest = Math.max(0, unpaidInterest - partInterest);
+        totalInterestPaid += partInterest;
+      }
     } else {
-      // Every recorded payment (Interest Payment, Partial Payment, Principal Part-Payment, EMI)
-      // first covers unpaid accrued interest, and any excess directly reduces outstanding principal
+      // Interest / EMI / General Repayment: covers accrued interest first, excess reduces principal
       if (amt <= unpaidInterest) {
         totalInterestPaid += amt;
         unpaidInterest -= amt;

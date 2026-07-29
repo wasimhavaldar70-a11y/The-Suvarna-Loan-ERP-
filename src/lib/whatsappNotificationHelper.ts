@@ -39,13 +39,31 @@ export function formatWhatsAppPhone(phone: string | undefined | null): string {
  */
 export function generateWhatsAppMessageText(type: AlertType, opts: WhatsAppAlertOptions): string {
   const { loan, payment, shopName = DEFAULT_SHOP_NAME, customMessage } = opts;
-  const customerName = loan.customer?.full_name || 'Valued Customer';
+
+  // Normalize customer name
+  const rawCust = Array.isArray(loan.customer) ? loan.customer[0] : loan.customer;
+  const customerName = rawCust?.full_name || rawCust?.name || 'Valued Customer';
+
+  // Ensure active/new payment is included in financial calculations
+  const existingPayments = Array.isArray(loan.payments) ? loan.payments : [];
+  const activePayment = payment || (existingPayments.length > 0 ? existingPayments[0] : null);
+
+  const hasActivePayment = activePayment && existingPayments.some(
+    p => (p.id && p.id === activePayment.id) || (p.created_at && p.created_at === activePayment.created_at)
+  );
+
+  const effectivePayments = (activePayment && !hasActivePayment)
+    ? [activePayment, ...existingPayments]
+    : existingPayments;
+
   const financials = calculateLoanFinancials(
     loan.loan_amount,
     loan.interest_rate,
     loan.loan_date,
     loan.due_date,
-    loan.payments
+    effectivePayments,
+    loan.repayment_model || 'Bullet Repayment',
+    loan.tenure_months || 12
   );
 
   const ornament = loan.gold_item?.ornament_type || 'Pledged Gold Asset';
@@ -72,10 +90,10 @@ export function generateWhatsAppMessageText(type: AlertType, opts: WhatsAppAlert
     }
 
     case 'REPAYMENT_RECEIPT': {
-      const pAmt = payment ? formatCurrency(payment.amount) : formatCurrency(financials.totalInterestPaid);
-      const pType = payment ? payment.payment_type : 'Repayment';
-      const pDate = payment ? formatDate(payment.payment_date) : formatDate(new Date().toISOString());
-      const pMethod = payment ? payment.payment_method : 'Cash/UPI';
+      const pAmt = activePayment ? formatCurrency(activePayment.amount) : formatCurrency(financials.totalInterestPaid);
+      const pType = activePayment ? activePayment.payment_type : 'Repayment';
+      const pDate = activePayment ? formatDate(activePayment.payment_date) : formatDate(new Date().toISOString());
+      const pMethod = activePayment ? activePayment.payment_method : 'Cash / UPI';
 
       return (
         `*✅ PAYMENT RECEIPT CONFIRMATION*\n` +

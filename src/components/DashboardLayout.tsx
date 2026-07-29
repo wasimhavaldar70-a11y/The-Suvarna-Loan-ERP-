@@ -28,7 +28,8 @@ import {
   Bell,
   Search,
   Lock,
-  RefreshCw
+  RefreshCw,
+  Calendar,
 } from 'lucide-react';
 import { getSessionUser, setSessionUser, supabase, isRealSupabase } from '../lib/supabase/client';
 import { db } from '../lib/supabase/supabaseDb';
@@ -529,6 +530,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Live Today's Date Pill */}
+            <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200/80 rounded-xl text-xs font-bold text-amber-950 shadow-2xs">
+              <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span>{new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span>
+            </div>
+
             {/* Live rates quick pill */}
             <div
               onClick={() => setRateModalOpen(true)}

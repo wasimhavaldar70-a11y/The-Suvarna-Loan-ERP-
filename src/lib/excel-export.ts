@@ -1,20 +1,20 @@
 // ========================================================
-// Excel & CSV Export Helper
+// Excel & CSV Export Helper (Dynamic Async Imports)
 // Location: src/lib/excel-export.ts
 // ========================================================
 
-import * as XLSX from 'xlsx';
-
-export function exportToExcel(data: any[], filename: string, sheetName: string = 'Data') {
+export async function exportToExcel(data: any[], filename: string, sheetName: string = 'Data') {
   if (!data || !data.length) return;
+  const XLSX = await import('xlsx');
   const worksheet = XLSX.utils.json_to_sheet(data);
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
   XLSX.writeFile(workbook, `${filename}.xlsx`);
 }
 
-export function exportToCSV(data: any[], filename: string) {
+export async function exportToCSV(data: any[], filename: string) {
   if (!data || !data.length) return;
+  const XLSX = await import('xlsx');
   const worksheet = XLSX.utils.json_to_sheet(data);
   const csvContent = XLSX.utils.sheet_to_csv(worksheet);
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });

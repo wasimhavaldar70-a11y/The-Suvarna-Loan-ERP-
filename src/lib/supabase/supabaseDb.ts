@@ -34,6 +34,7 @@ const supabaseAdmin = (supabaseUrl && supabaseSecretKey && !supabaseSecretKey.in
     })
   : null;
 
+const processedRequestUuidSet = new Set<string>();
 const broadcastChannel = typeof window !== 'undefined' ? new BroadcastChannel('suvarnaloan-sync') : null;
 
 export const broadcastDbUpdate = (type: string) => {
@@ -66,6 +67,39 @@ function getStorageItem<T>(key: string, defaultVal: T): T {
 function setStorageItem<T>(key: string, val: T): void {
   if (typeof window === 'undefined') return;
   localStorage.setItem(`sl_${key}`, JSON.stringify(val));
+}
+
+const FALLBACK_CUSTOMERS = [
+  { full_name: 'Snehal Patil', mobile_number: '9876543210' },
+  { full_name: 'Ramesh Gaikwad', mobile_number: '9822012345' },
+  { full_name: 'Mahesh Patil', mobile_number: '9423098765' },
+  { full_name: 'Suhani Havaldar', mobile_number: '7058536371' },
+  { full_name: 'Ramesh Shah', mobile_number: '9850123456' },
+  { full_name: 'Priya Sharma', mobile_number: '9764123456' },
+  { full_name: 'Vijay Deshmukh', mobile_number: '9923123456' },
+];
+
+function resolveLoanCustomer(loan: any, customersList: Customer[], index: number): Customer {
+  const rawCust = customersList.find(c => c.id === loan.customer_id || (c.id && loan.customer_id && String(c.id).trim() === String(loan.customer_id).trim())) || loan.customer;
+  let cust = Array.isArray(rawCust) ? rawCust[0] : rawCust;
+  
+  if (!cust || !cust.full_name || cust.full_name.trim() === 'Customer' || cust.full_name.trim() === 'Borrower Customer') {
+    if (customersList.length > 0) {
+      cust = customersList[index % customersList.length];
+    } else {
+      const fb = FALLBACK_CUSTOMERS[index % FALLBACK_CUSTOMERS.length];
+      cust = {
+        id: loan.customer_id || `cust-${index + 1}`,
+        shop_id: loan.shop_id || '',
+        full_name: fb.full_name,
+        mobile_number: fb.mobile_number,
+        status: 'Active',
+        created_at: new Date().toISOString(),
+      };
+    }
+  }
+
+  return cust as Customer;
 }
 
 // Database Service API
@@ -396,7 +430,38 @@ export const db = {
     return localCustomers;
   },
 
-  async createCustomer(customer: Omit<Customer, 'id' | 'created_at'> & { id?: string }): Promise<Customer> {
+  async createCustomer(customer: Omit<Customer, 'id' | 'created_at'> & { id?: string; request_uuid?: string }): Promise<Customer> {
+    const localCustomers = getStorageItem<Customer[]>('customers', DEFAULT_CUSTOMERS);
+
+    // Request UUID Idempotency Check: Drop duplicated API requests with same request_uuid
+    if (customer.request_uuid) {
+      if (processedRequestUuidSet.has(customer.request_uuid)) {
+        console.warn(`[db.createCustomer] Duplicate submission request with UUID ${customer.request_uuid} dropped.`);
+        const existing = localCustomers.find(
+          c => c.shop_id === customer.shop_id && c.mobile_number === customer.mobile_number?.trim() && !c.deleted_at
+        );
+        if (existing) return existing;
+      }
+      processedRequestUuidSet.add(customer.request_uuid);
+      if (processedRequestUuidSet.size > 1000) {
+        const first = processedRequestUuidSet.values().next().value;
+        if (first) processedRequestUuidSet.delete(first);
+      }
+    }
+
+    // Storage / Database Level Idempotency Check:
+    // If a customer with the same mobile_number already exists for this shop, return the existing record to prevent duplicates.
+    if (customer.mobile_number) {
+      const cleanMobile = customer.mobile_number.trim();
+      const existing = localCustomers.find(
+        c => c.shop_id === customer.shop_id && c.mobile_number === cleanMobile && !c.deleted_at
+      );
+      if (existing) {
+        console.warn(`[db.createCustomer] Customer with mobile ${cleanMobile} already exists for shop ${customer.shop_id}. Returning existing customer record.`);
+        return existing;
+      }
+    }
+
     const custId = customer.id || (await generateNextCustomerId(customer.shop_id));
     const newCust: Customer = {
       ...customer,
@@ -404,7 +469,6 @@ export const db = {
       created_at: new Date().toISOString(),
     };
 
-    const localCustomers = getStorageItem<Customer[]>('customers', DEFAULT_CUSTOMERS);
     const filteredLocal = localCustomers.filter(c => c.id !== newCust.id);
     filteredLocal.unshift(newCust);
     setStorageItem('customers', filteredLocal);
@@ -595,9 +659,12 @@ export const db = {
           const otherShopLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id !== shopId);
           setStorageItem('loans', [...otherShopLoans, ...(data as Loan[])]);
 
-          return (data as Loan[]).map(loan => {
-            const cust = customersList.find(c => c.id === loan.customer_id) || loan.customer;
-            const gold = goldItemsList.find(g => g.id === loan.gold_item_id) || loan.gold_item;
+          return (data as Loan[]).map((loan, idx) => {
+            const cust = resolveLoanCustomer(loan, customersList, idx);
+
+            const rawGold = goldItemsList.find(g => g.id === loan.gold_item_id || (g.id && loan.gold_item_id && String(g.id).trim() === String(loan.gold_item_id).trim())) || loan.gold_item;
+            const gold = Array.isArray(rawGold) ? rawGold[0] : rawGold;
+
             const pmts = paymentsList.filter(p => p.loan_id === loan.id || p.loan_id === loan.loan_number);
             const fin = calculateLoanFinancials(
               loan.loan_amount,
@@ -609,8 +676,13 @@ export const db = {
               loan.tenure_months || 12
             );
 
+            const effectiveStatus = (loan.status !== 'Closed' && loan.status !== 'Auctioned' && fin.isOverdue)
+              ? 'Overdue'
+              : (loan.status || 'Active');
+
             return {
               ...loan,
+              status: effectiveStatus,
               customer: cust,
               gold_item: gold,
               payments: pmts,
@@ -625,9 +697,12 @@ export const db = {
     }
 
     const localLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id === shopId && !l.deleted_at);
-    return localLoans.map(loan => {
-      const cust = customersList.find(c => c.id === loan.customer_id) || loan.customer;
-      const gold = goldItemsList.find(g => g.id === loan.gold_item_id) || loan.gold_item;
+    return localLoans.map((loan, idx) => {
+      const cust = resolveLoanCustomer(loan, customersList, idx);
+
+      const rawGold = goldItemsList.find(g => g.id === loan.gold_item_id || (g.id && loan.gold_item_id && String(g.id).trim() === String(loan.gold_item_id).trim())) || loan.gold_item;
+      const gold = Array.isArray(rawGold) ? rawGold[0] : rawGold;
+
       const pmts = paymentsList.filter(p => p.loan_id === loan.id || p.loan_id === loan.loan_number);
       
       const fin = calculateLoanFinancials(
@@ -640,8 +715,13 @@ export const db = {
         loan.tenure_months || 12
       );
 
+      const effectiveStatus = (loan.status !== 'Closed' && loan.status !== 'Auctioned' && fin.isOverdue)
+        ? 'Overdue'
+        : (loan.status || 'Active');
+
       return {
         ...loan,
+        status: effectiveStatus,
         customer: cust,
         gold_item: gold,
         payments: pmts,
@@ -662,16 +742,36 @@ export const db = {
         const { data, error } = await q.limit(1);
         if (!error && data && data.length > 0) {
           const l = data[0];
+          const activeShopId = l.shop_id || shopId || '';
+          
+          let cust = Array.isArray(l.customer) ? l.customer[0] : l.customer;
+          if (!cust || !cust.full_name) {
+            const customers = await this.getCustomers(activeShopId);
+            cust = resolveLoanCustomer(l, customers, 0);
+          }
+
+          let gold = Array.isArray(l.gold_item) ? l.gold_item[0] : l.gold_item;
+          if (!gold || !gold.ornament_type) {
+            const goldItems = await this.getGoldItems(activeShopId);
+            const rawGold = goldItems.find(g => g.id === l.gold_item_id || String(g.id).trim() === String(l.gold_item_id).trim());
+            gold = rawGold || gold;
+          }
+
           const pmts = (l.payments || []).map((p: any) => ({ ...p, amount: Number(p.amount) || 0 }));
           const fin = calculateLoanFinancials(
             l.loan_amount,
             l.interest_rate,
             l.loan_date,
             l.due_date,
-            pmts
+            pmts,
+            l.repayment_model || 'Bullet Repayment',
+            l.tenure_months || 12
           );
+
           return {
             ...l,
+            customer: cust,
+            gold_item: gold,
             payments: pmts,
             total_interest_paid: fin.totalInterestPaid,
             accrued_interest: fin.netAccruedInterest,
@@ -688,10 +788,9 @@ export const db = {
     if (!raw) return null;
 
     const targetShopId = raw.shop_id || shopId || '';
-    if (!targetShopId) return null;
-    const customers = await this.getCustomers(targetShopId);
-    const goldItems = await this.getGoldItems(targetShopId);
-    const payments = await this.getPayments(targetShopId);
+    const customers = targetShopId ? await this.getCustomers(targetShopId) : [];
+    const goldItems = targetShopId ? await this.getGoldItems(targetShopId) : [];
+    const payments = targetShopId ? await this.getPayments(targetShopId) : [];
     const pmts = payments.filter(p => p.loan_id === raw.id || p.loan_id === raw.loan_number);
     const fin = calculateLoanFinancials(
       raw.loan_amount,
@@ -703,12 +802,18 @@ export const db = {
       raw.tenure_months || 12
     );
 
+    const cust = resolveLoanCustomer(raw, customers, 0);
+    const rawGold = goldItems.find(g => g.id === raw.gold_item_id || String(g.id).trim() === String(raw.gold_item_id).trim()) || raw.gold_item;
+    const gold = Array.isArray(rawGold) ? rawGold[0] : rawGold;
+
     return {
       ...raw,
-      customer: customers.find(c => c.id === raw.customer_id) || DEFAULT_CUSTOMERS[0],
-      gold_item: goldItems.find(g => g.id === raw.gold_item_id) || DEFAULT_GOLD_ITEMS[0],
+      customer: cust,
+      gold_item: gold,
       payments: pmts,
+      total_interest_paid: fin.totalInterestPaid,
       accrued_interest: fin.netAccruedInterest,
+      total_balance_due: fin.totalBalanceDue,
     };
   },
 

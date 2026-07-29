@@ -5,8 +5,8 @@
 // Location: src/app/dashboard/customers/page.tsx
 // ========================================================
 
-import React, { useState, useEffect } from 'react';
-import { Users, Plus, Search, ShieldCheck, FileCheck, Phone, MapPin, X, Camera, Zap, Eye, Image as ImageIcon, Coins, Lock, Edit2, Save, CheckCircle2, Download } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { Users, Plus, Search, ShieldCheck, FileCheck, Phone, MapPin, X, Camera, Zap, Eye, Image as ImageIcon, Coins, Lock, Edit2, Save, CheckCircle2, Download, Loader2 } from 'lucide-react';
 import DashboardLayout from '../../../components/DashboardLayout';
 import { DocumentCameraUpload } from '../../../components/ui/DocumentCameraUpload';
 import { CreateGoldLoanModal } from '../../../components/CreateGoldLoanModal';
@@ -25,6 +25,13 @@ export default function CustomersPage() {
   const [search, setSearch] = useState('');
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [previewDocModal, setPreviewDocModal] = useState<{ title: string; url: string } | null>(null);
+
+  // Customer Submission Locks & Progress State
+  const isSubmittingCustomerRef = useRef(false);
+  const [submittingCustomer, setSubmittingCustomer] = useState(false);
+  const [submittingStepText, setSubmittingStepText] = useState('Saving Customer...');
+  const [submittingSuccess, setSubmittingSuccess] = useState(false);
+  const [submittingError, setSubmittingError] = useState(false);
 
   // Customer Profile Detail Modal States
   const [profileModalOpen, setProfileModalOpen] = useState(false);
@@ -67,71 +74,110 @@ export default function CustomersPage() {
     loadCustomers();
   }, []);
 
+  const handleKeyDownForm = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (submittingCustomer || isSubmittingCustomerRef.current)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  };
+
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const nameCheck = validateFullName(fullName, 'Full Customer Name');
-    if (!nameCheck.isValid) {
-      toast.error(nameCheck.error);
+    if (isSubmittingCustomerRef.current || submittingCustomer) {
       return;
     }
 
-    const phoneCheck = validatePhone(mobile);
-    if (!phoneCheck.isValid) {
-      toast.error(phoneCheck.error);
-      return;
-    }
+    isSubmittingCustomerRef.current = true;
+    setSubmittingCustomer(true);
+    setSubmittingSuccess(false);
+    setSubmittingError(false);
+    setSubmittingStepText('Validating Details...');
 
-    if (!aadhaar || !aadhaar.trim()) {
-      toast.error('Aadhaar Card Number * is mandatory!');
-      return;
-    }
-
-    const aadhaarCheck = validateAadhaar(aadhaar);
-    if (!aadhaarCheck.isValid) {
-      toast.error(aadhaarCheck.error);
-      return;
-    }
-
-    if (pan && pan.trim()) {
-      const panCheck = validatePanCard(pan);
-      if (!panCheck.isValid) {
-        toast.error(panCheck.error);
-        return;
-      }
-    }
-
-    // Check if customer already exists by Mobile or Aadhaar to prevent duplicate profile creation
-    const cleanMobile = mobile.trim();
-    const cleanAadhaar = aadhaar.trim();
-    const existingCust = customers.find(
-      (c) => c.mobile_number === cleanMobile || (cleanAadhaar && c.aadhaar_number && c.aadhaar_number === cleanAadhaar)
-    );
-
-    if (existingCust) {
-      toast.info(`ℹ️ Customer "${existingCust.full_name}" (${existingCust.mobile_number}) is already registered! Opened existing customer profile.`);
-      setSelectedCustomer(existingCust);
-      setProfileModalOpen(true);
-      setAddModalOpen(false);
-      return;
-    }
-
-    if (!photoUrl) {
-      toast.error('Photo Upload * is mandatory!');
-      return;
-    }
-
-    if (!aadhaarFrontUrl) {
-      toast.error('Aadhaar Card Front * is mandatory!');
-      return;
-    }
-
-    if (!aadhaarBackUrl) {
-      toast.error('Aadhaar Card Back * is mandatory!');
-      return;
-    }
+    // Generate unique idempotency key for this submission request
+    const requestUuid = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `req-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
 
     try {
+      const nameCheck = validateFullName(fullName, 'Full Customer Name');
+      if (!nameCheck.isValid) {
+        toast.error(nameCheck.error);
+        isSubmittingCustomerRef.current = false;
+        setSubmittingCustomer(false);
+        return;
+      }
+
+      const phoneCheck = validatePhone(mobile);
+      if (!phoneCheck.isValid) {
+        toast.error(phoneCheck.error);
+        isSubmittingCustomerRef.current = false;
+        setSubmittingCustomer(false);
+        return;
+      }
+
+      if (!aadhaar || !aadhaar.trim()) {
+        toast.error('Aadhaar Card Number * is mandatory!');
+        isSubmittingCustomerRef.current = false;
+        setSubmittingCustomer(false);
+        return;
+      }
+
+      const aadhaarCheck = validateAadhaar(aadhaar);
+      if (!aadhaarCheck.isValid) {
+        toast.error(aadhaarCheck.error);
+        isSubmittingCustomerRef.current = false;
+        setSubmittingCustomer(false);
+        return;
+      }
+
+      if (pan && pan.trim()) {
+        const panCheck = validatePanCard(pan);
+        if (!panCheck.isValid) {
+          toast.error(panCheck.error);
+          isSubmittingCustomerRef.current = false;
+          setSubmittingCustomer(false);
+          return;
+        }
+      }
+
+      // Check if customer already exists by Mobile or Aadhaar to prevent duplicate profile creation
+      const cleanMobile = mobile.trim();
+      const cleanAadhaar = aadhaar.trim();
+      const existingCust = customers.find(
+        (c) => c.mobile_number === cleanMobile || (cleanAadhaar && c.aadhaar_number && c.aadhaar_number === cleanAadhaar)
+      );
+
+      if (existingCust) {
+        toast.info(`ℹ️ Customer "${existingCust.full_name}" (${existingCust.mobile_number}) is already registered! Opened existing customer profile.`);
+        setSelectedCustomer(existingCust);
+        setProfileModalOpen(true);
+        setAddModalOpen(false);
+        isSubmittingCustomerRef.current = false;
+        setSubmittingCustomer(false);
+        return;
+      }
+
+      if (!photoUrl) {
+        toast.error('Photo Upload * is mandatory!');
+        isSubmittingCustomerRef.current = false;
+        setSubmittingCustomer(false);
+        return;
+      }
+
+      if (!aadhaarFrontUrl) {
+        toast.error('Aadhaar Card Front * is mandatory!');
+        isSubmittingCustomerRef.current = false;
+        setSubmittingCustomer(false);
+        return;
+      }
+
+      if (!aadhaarBackUrl) {
+        toast.error('Aadhaar Card Back * is mandatory!');
+        isSubmittingCustomerRef.current = false;
+        setSubmittingCustomer(false);
+        return;
+      }
+
+      setSubmittingStepText('Compressing KYC & Uploading Files...');
       const activeShopId = getActiveShopId();
       const preGenCustId = await generateNextCustomerId(activeShopId);
 
@@ -175,6 +221,7 @@ export default function CustomersPage() {
           })
         : '';
 
+      setSubmittingStepText('Creating Customer Record...');
       const created = await db.createCustomer({
         id: preGenCustId,
         shop_id: activeShopId,
@@ -192,6 +239,7 @@ export default function CustomersPage() {
         aadhaar_url: finalAadhaarFrontUrl,
         aadhaar_back_url: finalAadhaarBackUrl,
         pan_url: finalPanUrl,
+        request_uuid: requestUuid,
       });
 
       await logAuditEvent(
@@ -205,23 +253,37 @@ export default function CustomersPage() {
         { full_name: fullName, mobile_number: mobile }
       );
 
-      toast.success(`Customer ${fullName} registered and saved to database!`);
-      setAddModalOpen(false);
+      setSubmittingSuccess(true);
+      setSubmittingStepText('✓ Customer Saved Successfully');
+      toast.success(`✓ Customer ${fullName} saved successfully!`);
 
-      // Reset form
-      setFullName('');
-      setMobile('');
-      setAadhaar('');
-      setPan('');
-      setAddress('');
-      setPhotoUrl('');
-      setAadhaarFrontUrl('');
-      setAadhaarBackUrl('');
-      setPanUrl('');
+      setTimeout(() => {
+        setAddModalOpen(false);
 
-      loadCustomers();
+        // Reset form
+        setFullName('');
+        setMobile('');
+        setAadhaar('');
+        setPan('');
+        setAddress('');
+        setPhotoUrl('');
+        setAadhaarFrontUrl('');
+        setAadhaarBackUrl('');
+        setPanUrl('');
+        setSubmittingSuccess(false);
+        setSubmittingCustomer(false);
+        setSubmittingError(false);
+        isSubmittingCustomerRef.current = false;
+
+        loadCustomers();
+      }, 700);
     } catch (err: any) {
-      toast.error(err?.message || "Failed to register customer");
+      console.error(err);
+      toast.error(err?.message || "❌ Unable to Save Customer. Please Try Again.");
+      setSubmittingError(true);
+      setSubmittingSuccess(false);
+      setSubmittingCustomer(false);
+      isSubmittingCustomerRef.current = false;
     }
   };
 
@@ -443,12 +505,18 @@ export default function CustomersPage() {
                 <Users className="w-5 h-5" />
                 <h3 className="text-base font-bold text-slate-900">Register New Borrower Customer</h3>
               </div>
-              <button onClick={() => setAddModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+              <button
+                disabled={submittingCustomer}
+                onClick={() => {
+                  if (!submittingCustomer) setAddModalOpen(false);
+                }}
+                className={`text-slate-400 ${submittingCustomer ? 'cursor-not-allowed opacity-40' : 'hover:text-slate-600'}`}
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleAddCustomer} className="space-y-5 pt-4">
+            <form onSubmit={handleAddCustomer} onKeyDown={handleKeyDownForm} className="space-y-5 pt-4">
               {/* Section 1: Personal Information */}
               <div className="space-y-3">
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
@@ -465,7 +533,7 @@ export default function CustomersPage() {
                       placeholder="e.g. Ramesh Shah (letters only)"
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value.replace(/[^a-zA-Z\s]/g, ''))}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      className="w-full min-h-[44px] px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none transition-shadow"
                       required
                     />
                   </div>
@@ -480,7 +548,7 @@ export default function CustomersPage() {
                       maxLength={10}
                       value={mobile}
                       onChange={(e) => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      className="w-full min-h-[44px] px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none transition-shadow"
                       required
                     />
                     <p className="text-[10px] text-slate-400 mt-0.5">Exactly 10 numeric digits only</p>
@@ -498,7 +566,7 @@ export default function CustomersPage() {
                       maxLength={14}
                       value={aadhaar ? aadhaar.replace(/(\d{4})(\d{4})?(\d{4})?/, (_, p1, p2, p3) => [p1, p2, p3].filter(Boolean).join(' ')) : ''}
                       onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, '').slice(0, 12))}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      className="w-full min-h-[44px] px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none transition-shadow"
                       required
                     />
                     <p className="text-[10px] text-amber-700 font-bold mt-0.5">Format: XXXX XXXX XXXX (12 digits)</p>
@@ -512,7 +580,7 @@ export default function CustomersPage() {
                       maxLength={10}
                       value={pan}
                       onChange={(e) => setPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))}
-                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      className="w-full min-h-[44px] px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none transition-shadow"
                     />
                     <p className="text-[10px] text-slate-400 mt-0.5">Format: ABCDE1234F (5 letters, 4 digits, 1 letter)</p>
                   </div>
@@ -525,7 +593,7 @@ export default function CustomersPage() {
                     placeholder="Full street address..."
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    className="w-full min-h-[50px] px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none transition-shadow"
                     required
                   />
                 </div>
@@ -584,16 +652,47 @@ export default function CustomersPage() {
               <div className="pt-4 flex items-center justify-end gap-2 border-t border-slate-100">
                 <button
                   type="button"
-                  onClick={() => setAddModalOpen(false)}
-                  className="px-4 py-2.5 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  disabled={submittingCustomer}
+                  onClick={() => {
+                    if (!submittingCustomer) setAddModalOpen(false);
+                  }}
+                  className={`min-h-[44px] px-4 py-2.5 text-xs font-semibold rounded-xl transition-colors focus:ring-2 focus:ring-slate-300 focus:outline-none ${
+                    submittingCustomer
+                      ? 'text-slate-300 cursor-not-allowed'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-6 py-2.5 text-xs font-bold bg-gradient-to-r from-amber-600 to-amber-500 text-white rounded-xl shadow-md gold-glow hover:brightness-105 transition-all"
+                  disabled={submittingCustomer}
+                  aria-busy={submittingCustomer}
+                  aria-disabled={submittingCustomer}
+                  className={`min-h-[44px] px-6 py-2.5 text-xs font-bold rounded-xl shadow-md transition-all focus:ring-2 focus:ring-amber-500 focus:outline-none flex items-center justify-center gap-2 ${
+                    submittingSuccess
+                      ? 'bg-emerald-600 text-white cursor-not-allowed'
+                      : submittingError
+                      ? 'bg-rose-600 hover:bg-rose-700 text-white gold-glow'
+                      : submittingCustomer
+                      ? 'bg-amber-600/80 text-white cursor-not-allowed opacity-90'
+                      : 'bg-gradient-to-r from-amber-600 to-amber-500 text-white gold-glow hover:brightness-105'
+                  }`}
                 >
-                  Save Customer & Compressed KYC
+                  {submittingCustomer ? (
+                    <>
+                      {submittingSuccess ? (
+                        <CheckCircle2 className="w-4 h-4 text-white shrink-0" />
+                      ) : (
+                        <Loader2 className="w-4 h-4 animate-spin text-white shrink-0" />
+                      )}
+                      <span>{submittingStepText}</span>
+                    </>
+                  ) : submittingError ? (
+                    <span>Retry Saving Customer</span>
+                  ) : (
+                    <span>Save Customer & Compressed KYC</span>
+                  )}
                 </button>
               </div>
             </form>
