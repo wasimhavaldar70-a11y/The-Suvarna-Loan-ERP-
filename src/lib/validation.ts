@@ -130,26 +130,77 @@ export function validateGeoField(value: string, fieldName: string): { isValid: b
   return { isValid: true };
 }
 
+// ========================================================
+// Official Indian UIDAI Verhoeff Checksum Matrices
+// ========================================================
+const verhoeffD = [
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+  [1, 2, 3, 4, 0, 6, 7, 8, 9, 5],
+  [2, 3, 4, 0, 1, 7, 8, 9, 5, 6],
+  [3, 4, 0, 1, 2, 8, 9, 5, 6, 7],
+  [4, 0, 1, 2, 3, 9, 5, 6, 7, 8],
+  [5, 9, 8, 7, 6, 0, 1, 2, 3, 4],
+  [6, 5, 9, 8, 7, 1, 0, 3, 2, 4],
+  [7, 6, 5, 9, 8, 2, 1, 4, 3, 0],
+  [8, 7, 6, 5, 9, 3, 2, 1, 4, 0],
+  [9, 8, 7, 6, 5, 4, 3, 2, 1, 0],
+];
+
+const verhoeffP = [
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
+  [1, 5, 7, 6, 2, 8, 3, 4, 9, 0],
+  [5, 8, 0, 3, 7, 9, 6, 1, 4, 2],
+  [8, 9, 1, 6, 0, 4, 3, 5, 2, 7],
+  [9, 4, 5, 3, 1, 2, 6, 8, 7, 0],
+  [4, 2, 8, 6, 5, 7, 3, 9, 0, 1],
+  [2, 7, 9, 3, 8, 0, 6, 4, 1, 5],
+  [7, 0, 4, 6, 9, 1, 3, 2, 5, 8],
+];
+
 /**
- * 3. Government Identity Verification - PAN Card
+ * Validates a 12-digit number against the UIDAI Verhoeff algorithm
+ */
+export function validateVerhoeffChecksum(num: string): boolean {
+  let c = 0;
+  const myArray = num.split('').map(Number).reverse();
+
+  for (let i = 0; i < myArray.length; i++) {
+    c = verhoeffD[c][verhoeffP[i % 8][myArray[i]]];
+  }
+
+  return c === 0;
+}
+
+/**
+ * 3. Government Identity Verification - PAN Card (Income Tax Department Formation)
+ * Format: 3 letters, 4th char entity type (P/C/H/F/A/T/B/L/J/G), 5th char surname initial, 4 digits, 1 check letter
  */
 export function validatePanCard(pan: string): { isValid: boolean; error?: string; cleaned: string } {
   const cleaned = (pan || '').trim().toUpperCase().replace(/[\s-]/g, '');
 
+  if (!cleaned) {
+    return { isValid: false, error: 'PAN Card number is required', cleaned: '' };
+  }
+
   if (cleaned.length !== 10) {
     return {
       isValid: false,
-      error: 'PAN Card must be exactly 10 characters (format: ABCDE1234F)',
+      error: 'PAN Card must be exactly 10 characters (e.g. ABCDE1234F)',
       cleaned,
     };
   }
 
-  // Structure: 1-5 letters (A-Z), 6-9 digits (0-9), 10 letter (A-Z)
-  const panRegex = /^[A-Z]{5}[0-9]{4}[A-Z]{1}$/;
+  // Official Income Tax PAN Formation:
+  // 1-3: Alphabetic series (AAA to ZZZ)
+  // 4: Status (P: Person/Individual, C: Company, H: HUF, F: Firm, A: AOP, T: Trust, B: BOI, L: Local Auth, J: Artificial Person, G: Govt)
+  // 5: Initial of Last Name / Entity Name
+  // 6-9: 4 sequential digits (0001-9999)
+  // 10: Alphabetic check digit
+  const panRegex = /^[A-Z]{3}[PCHAFABGJLT][A-Z]\d{4}[A-Z]$/;
   if (!panRegex.test(cleaned)) {
     return {
       isValid: false,
-      error: 'Invalid PAN Card format. Must be 5 letters, 4 digits, 1 letter (e.g. ABCDE1234F)',
+      error: 'Invalid PAN Card formation. Must follow Income Tax format: 5 letters (4th char valid entity P/C/H/F/A/T/B/L/J/G), 4 digits, 1 letter (e.g. ABCDE1234F)',
       cleaned,
     };
   }
@@ -158,17 +209,39 @@ export function validatePanCard(pan: string): { isValid: boolean; error?: string
 }
 
 /**
- * 3. Government Identity Verification - Aadhaar Card
+ * 3. Government Identity Verification - Aadhaar Card (UIDAI Standard & Verhoeff Checksum)
  */
 export function validateAadhaar(aadhaar: string): { isValid: boolean; error?: string; cleaned: string } {
   const cleaned = (aadhaar || '').replace(/[\s-]/g, '');
+
+  if (!cleaned) {
+    return { isValid: false, error: 'Aadhaar Card number is required', cleaned: '' };
+  }
+
   if (!/^\d{12}$/.test(cleaned)) {
     return {
       isValid: false,
-      error: 'Aadhaar Card must be exactly 12 digits (format: 1234 5678 9012)',
+      error: 'Aadhaar Card must be exactly 12 digits (e.g. 2345 6789 0123)',
       cleaned,
     };
   }
+
+  if (cleaned.startsWith('0') || cleaned.startsWith('1')) {
+    return {
+      isValid: false,
+      error: 'Invalid Aadhaar Card number: Aadhaar numbers issued by UIDAI cannot start with 0 or 1',
+      cleaned,
+    };
+  }
+
+  if (!validateVerhoeffChecksum(cleaned)) {
+    return {
+      isValid: false,
+      error: 'Invalid Aadhaar Card checksum: The entered 12-digit number failed UIDAI Verhoeff checksum validation',
+      cleaned,
+    };
+  }
+
   return { isValid: true, cleaned };
 }
 
