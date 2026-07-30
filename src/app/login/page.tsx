@@ -5,7 +5,7 @@
 // Location: src/app/login/page.tsx
 // ========================================================
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Coins, ShieldCheck, UserCheck, ArrowRight, Lock, Sparkles, Building2, Send, CheckCircle2, Eye, EyeOff } from 'lucide-react';
@@ -18,12 +18,17 @@ import { toast } from 'sonner';
 
 export default function LoginPage() {
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [activationSent, setActivationSent] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const handleRequestActivation = async () => {
     if (!validateEmail(email)) {
@@ -198,6 +203,83 @@ export default function LoginPage() {
       setLoading(false);
     }
   };
+
+  if (!mounted) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-amber-50/80 via-slate-50 to-amber-100/60 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden font-sans">
+        <div className="sm:mx-auto sm:w-full sm:max-w-md text-center z-10">
+          <div className="mx-auto w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-600 via-amber-500 to-amber-300 flex items-center justify-center font-bold text-slate-950 shadow-xl shadow-amber-500/20 mb-4">
+            <Coins className="w-9 h-9" />
+          </div>
+          <h2 className="text-2xl md:text-3xl font-black text-slate-900 tracking-tight">SuvarnaLoan ERP</h2>
+          <p className="mt-1 text-xs font-bold text-amber-800 tracking-wide flex items-center justify-center gap-1">
+            <Building2 className="w-3.5 h-3.5" />
+            <span>Gold Loan Enterprise Software • Humble Goats SaaS</span>
+          </p>
+        </div>
+        <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md z-10 px-4">
+          <div className="bg-white/90 backdrop-blur-xl border border-amber-200/80 rounded-3xl p-8 shadow-2xl shadow-amber-950/5 relative overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-amber-500 via-amber-400 to-amber-600" />
+            <form onSubmit={handleLogin} className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Work Email Address</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-900 focus:outline-none focus:border-amber-500 focus:bg-white focus:ring-4 focus:ring-amber-500/10 transition-all"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1.5">Account Password</label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full pl-4 pr-11 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-900 focus:outline-none focus:border-amber-500 focus:bg-white focus:ring-4 focus:ring-amber-500/10 transition-all"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1.5 text-slate-400 hover:text-amber-600 transition-colors rounded-xl focus:outline-none"
+                    title={showPassword ? 'Hide Password' : 'Show Password'}
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full py-3.5 mt-2 bg-gradient-to-r from-amber-600 via-amber-500 to-amber-400 text-slate-950 font-extrabold text-xs rounded-2xl shadow-lg shadow-amber-500/30 flex items-center justify-center gap-2 transition-all cursor-pointer"
+              >
+                {loading ? (
+                  <div className="flex items-center gap-2">
+                    <div className="w-4 h-4 rounded-full border-2 border-slate-950 border-t-transparent animate-spin" />
+                    <span>Authenticating...</span>
+                  </div>
+                ) : (
+                  <>
+                    <span>Sign In</span>
+                    <ArrowRight className="w-4 h-4" />
+                  </>
+                )}
+              </button>
+            </form>
+            <div className="mt-4 pt-3 border-t border-slate-100 text-center">
+              <p className="text-[11px] font-semibold text-slate-500 flex items-center justify-center gap-1.5">
+                <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Protected by Supabase RLS & 256-bit SSL Encryption</span>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-amber-50/80 via-slate-50 to-amber-100/60 flex flex-col justify-center py-12 sm:px-6 lg:px-8 relative overflow-hidden font-sans">
