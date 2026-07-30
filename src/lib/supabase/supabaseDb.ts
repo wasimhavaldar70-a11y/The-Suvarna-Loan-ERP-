@@ -23,7 +23,7 @@ import {
 } from '../../types';
 import { calculateGoldValuation, calculateLoanFinancials } from '../goldValuationEngine';
 import { uploadToSupabaseStorage, deleteCustomerFiles, getSignedDocumentUrl } from '../storageHelper';
-import { generateNextCustomerId, generateNextGoldItemId, generateNextLoanId, generateNextPaymentId } from '../idGenerator';
+import { generateNextCustomerId, generateNextGoldItemId, generateNextLoanId, generateNextPaymentId, formatHumanId } from '../idGenerator';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || '';
@@ -1031,12 +1031,29 @@ export const db = {
   },
 
   async recordPayment(paymentData: Omit<Payment, 'id' | 'created_at'>): Promise<Payment> {
-    const pmtId = await generateNextPaymentId(paymentData.shop_id);
+    const existingLocalPmts = getStorageItem<Payment[]>('payments', DEFAULT_PAYMENTS);
+
+    let pmtId = (paymentData as any).id;
+    if (!pmtId || existingLocalPmts.some(p => p.id === pmtId)) {
+      pmtId = await generateNextPaymentId(paymentData.shop_id);
+      let attempt = 1;
+      let safeId = pmtId;
+      while (existingLocalPmts.some(p => p.id === safeId)) {
+        const numPart = parseInt(pmtId.replace(/^pmt-/i, ''), 10) || (Date.now() % 900000);
+        safeId = formatHumanId('pmt', numPart + attempt, 6);
+        attempt++;
+      }
+      pmtId = safeId;
+    }
+
     const yr = new Date().getFullYear();
+    const rawSeq = pmtId.replace(/^[a-z]+-/i, '');
+    const receiptNum = paymentData.receipt_number || `REC-${yr}-${rawSeq}`;
+
     const newPmt: Payment = {
       ...paymentData,
       id: pmtId,
-      receipt_number: `REC-${yr}-${pmtId.replace(/^pmt-/i, '')}`,
+      receipt_number: receiptNum,
       created_at: new Date().toISOString(),
     };
 

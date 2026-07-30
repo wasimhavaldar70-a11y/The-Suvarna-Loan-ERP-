@@ -139,7 +139,6 @@ export function RecordRepaymentModal({
 
     try {
       const newPayment = {
-        id: `pay-${Date.now()}`,
         shop_id: loan.shop_id,
         loan_id: loan.id,
         payment_type: paymentType,
@@ -147,10 +146,9 @@ export function RecordRepaymentModal({
         payment_date: new Date().toISOString().split('T')[0],
         payment_method: paymentMethod,
         notes: notes ? notes.trim() : '',
-        created_at: new Date().toISOString(),
       };
 
-      await db.recordPayment(newPayment);
+      const savedPmt = await db.recordPayment(newPayment as any);
 
       const isClosed = paymentType === 'Full Settlement' || paymentAmount >= fin.totalBalanceDue;
 
@@ -164,7 +162,7 @@ export function RecordRepaymentModal({
         // Auto dispatch WhatsApp Payment Receipt
         const waMessage = generateWhatsAppMessageText(
           isClosed ? 'LOAN_CLOSURE' : 'REPAYMENT_RECEIPT',
-          { loan, payment: newPayment }
+          { loan, payment: savedPmt }
         );
         sendWhatsAppAlert(loan.customer?.mobile_number, waMessage);
         toast.success(`Dispatched GST Receipt alert to ${loan.customer?.full_name || 'Customer'}`);
