@@ -7,6 +7,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Link from 'next/link';
+import { RealtimeProvider } from '../providers/RealtimeProvider';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   LayoutDashboard,
@@ -335,7 +336,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   }
 
   return (
-    <div className="flex min-h-screen bg-slate-50 text-slate-900 font-sans">
+    <RealtimeProvider shopId={currentShop?.id}>
+      <div className="flex min-h-screen bg-slate-50 text-slate-900 font-sans">
       <Toaster position="top-right" richColors />
 
       {/* Desktop Sidebar (Fixed Sticky position - does NOT scroll away with page content) */}
@@ -651,5 +653,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         </div>
       )}
     </div>
+    </RealtimeProvider>
   );
 }

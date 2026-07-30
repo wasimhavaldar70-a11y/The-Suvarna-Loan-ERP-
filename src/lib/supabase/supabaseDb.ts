@@ -736,6 +736,9 @@ export const db = {
             .is('deleted_at', null)
             .order('created_at', { ascending: false });
           if (!error && data) {
+            console.log("Raw Supabase loans count:", data.length);
+            console.log("Loan numbers:", data.map((l: any) => l.loan_number));
+
             const otherShopLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id !== shopId);
             setStorageItem('loans', [...otherShopLoans, ...(data as Loan[])]);
 
