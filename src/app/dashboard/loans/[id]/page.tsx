@@ -126,6 +126,18 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
 
   useEffect(() => {
     loadLoan();
+
+    if (typeof window !== 'undefined') {
+      const channel = new BroadcastChannel('suvarnaloan-sync');
+      channel.onmessage = (event) => {
+        if (event.data?.type === 'DB_UPDATE' && (event.data?.table === 'payments' || event.data?.table === 'loans')) {
+          loadLoan();
+        }
+      };
+      return () => {
+        channel.close();
+      };
+    }
   }, [resolvedParams.id]);
 
   const handlePrintEnterpriseStatement = async () => {

@@ -758,7 +758,13 @@ export const db = {
             gold = rawGold || gold;
           }
 
-          const pmts = (l.payments || []).map((p: any) => ({ ...p, amount: Number(p.amount) || 0 }));
+          const allPayments = await this.getPayments(activeShopId);
+          const cloudPmts = (l.payments || []).map((p: any) => ({ ...p, amount: Number(p.amount) || 0 }));
+          const pmtMap = new Map<string, Payment>();
+          allPayments.filter((p: Payment) => p.loan_id === l.id || p.loan_id === l.loan_number).forEach((p: Payment) => pmtMap.set(p.id, p));
+          cloudPmts.forEach((p: Payment) => pmtMap.set(p.id, p));
+          const pmts = Array.from(pmtMap.values()).sort((a, b) => new Date(b.created_at || b.payment_date || 0).getTime() - new Date(a.created_at || a.payment_date || 0).getTime());
+
           const fin = calculateLoanFinancials(
             l.loan_amount,
             l.interest_rate,
@@ -1062,10 +1068,31 @@ export const db = {
 
     // Update target loan in local storage
     const loans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS);
-    const targetLoan = loans.find((l) => l.id === paymentData.loan_id);
+    const targetLoan = loans.find((l) => l.id === paymentData.loan_id || l.loan_number === paymentData.loan_id);
     if (targetLoan) {
-      targetLoan.total_interest_paid = (targetLoan.total_interest_paid || 0) + paymentData.amount;
-      if (paymentData.payment_type === 'Full Settlement') {
+      if (!targetLoan.payments) targetLoan.payments = [];
+      const pIdx = targetLoan.payments.findIndex(p => p.id === resultPmt.id);
+      if (pIdx !== -1) {
+        targetLoan.payments[pIdx] = resultPmt;
+      } else {
+        targetLoan.payments.unshift(resultPmt);
+      }
+
+      const fin = calculateLoanFinancials(
+        targetLoan.loan_amount,
+        targetLoan.interest_rate,
+        targetLoan.loan_date,
+        targetLoan.due_date,
+        targetLoan.payments,
+        targetLoan.repayment_model || 'Bullet Repayment',
+        targetLoan.tenure_months || 12
+      );
+
+      targetLoan.total_interest_paid = fin.totalInterestPaid;
+      targetLoan.accrued_interest = fin.netAccruedInterest;
+      targetLoan.total_balance_due = fin.totalBalanceDue;
+
+      if (paymentData.payment_type === 'Full Settlement' || fin.totalBalanceDue <= 0) {
         targetLoan.status = 'Closed';
         targetLoan.closed_date = new Date().toISOString().split('T')[0];
       }

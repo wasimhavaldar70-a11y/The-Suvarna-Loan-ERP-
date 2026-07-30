@@ -112,7 +112,7 @@ CREATE TABLE IF NOT EXISTS public.payments (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   shop_id UUID REFERENCES public.shops(id) ON DELETE CASCADE,
   loan_id UUID NOT NULL REFERENCES public.loans(id) ON DELETE CASCADE,
-  payment_type VARCHAR(50) NOT NULL CHECK (payment_type IN ('Interest Payment', 'Partial Payment', 'Full Settlement')),
+  payment_type VARCHAR(50) NOT NULL CHECK (payment_type IN ('Interest Payment', 'Partial Payment', 'Principal Part-Payment', 'Full Settlement')),
   amount DECIMAL(15, 2) NOT NULL,
   payment_date DATE NOT NULL DEFAULT CURRENT_DATE,
   payment_method VARCHAR(50) NOT NULL,

@@ -192,7 +192,7 @@ export function calculateLoanFinancials(
       totalInterestPaid += unpaidInterest;
       remainingPrincipal = 0;
       unpaidInterest = 0;
-    } else if (pType.includes('principal')) {
+    } else if (pType.includes('principal') || pType.includes('partial') || pType.includes('part')) {
       // Direct principal part-payment: subtracts from remaining principal first
       const partPrincipal = Math.min(amt, remainingPrincipal);
       remainingPrincipal = Math.max(0, remainingPrincipal - partPrincipal);
