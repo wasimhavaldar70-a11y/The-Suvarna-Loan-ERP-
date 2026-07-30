@@ -13,6 +13,14 @@ export async function updateSession(request: NextRequest) {
     },
   });
 
+  const pathname = request.nextUrl.pathname;
+  const isProtectedRoute = pathname.startsWith('/dashboard') || pathname.startsWith('/admin');
+
+  // Fast path: Unprotected routes do not require synchronous Supabase Auth network verification
+  if (!isProtectedRoute) {
+    return response;
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
@@ -69,28 +77,24 @@ export async function updateSession(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
 
   // Edge Route Guard: Protect /dashboard and /admin routes
-  const pathname = request.nextUrl.pathname;
-
   // 1. Unauthenticated users cannot access protected routes
-  if ((pathname.startsWith('/dashboard') || pathname.startsWith('/admin')) && !user) {
+  if (!user) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('redirect', pathname);
     return NextResponse.redirect(loginUrl);
   }
 
   // 2. Role-based route enforcement (prevents cross-role access)
-  if (user) {
-    const userRole = user.user_metadata?.role;
+  const userRole = user.user_metadata?.role;
 
-    // Shop Owners/Staff CANNOT access /admin/* routes
-    if (pathname.startsWith('/admin') && userRole !== 'Super Admin') {
-      return NextResponse.redirect(new URL('/dashboard', request.url));
-    }
+  // Shop Owners/Staff CANNOT access /admin/* routes
+  if (pathname.startsWith('/admin') && userRole !== 'Super Admin') {
+    return NextResponse.redirect(new URL('/dashboard', request.url));
+  }
 
-    // Super Admins accessing /dashboard (not /admin/dashboard) get redirected
-    if (pathname.startsWith('/dashboard') && !pathname.startsWith('/admin') && userRole === 'Super Admin') {
-      return NextResponse.redirect(new URL('/admin/dashboard', request.url));
-    }
+  // Super Admins accessing /dashboard (not /admin/dashboard) get redirected
+  if (pathname.startsWith('/dashboard') && !pathname.startsWith('/admin') && userRole === 'Super Admin') {
+    return NextResponse.redirect(new URL('/admin/dashboard', request.url));
   }
 
   return response;

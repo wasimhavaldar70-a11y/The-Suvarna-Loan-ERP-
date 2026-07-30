@@ -286,6 +286,8 @@ export async function uploadGoldImages(
   return uploadedPaths;
 }
 
+const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+
 /**
  * Generates a temporary Signed URL (30 minutes default) for displaying documents.
  * Checks both Uploaded-Documents and legacy customer-documents buckets.
@@ -301,6 +303,12 @@ export async function getSignedDocumentUrl(
 
   // Strip existing token or query parameters if present
   let cleanPath = storagePath.split('?')[0];
+
+  // 1. Check In-Memory Signed URL Cache
+  const cached = signedUrlCache.get(cleanPath);
+  if (cached && cached.expiresAt > Date.now() + 60000) {
+    return cached.url;
+  }
 
   let bucketToUse = BUCKET_NAME;
   let relativePath = cleanPath;
@@ -326,6 +334,12 @@ export async function getSignedDocumentUrl(
         .createSignedUrl(relativePath, expiresInSeconds);
 
       if (!error && data?.signedUrl) {
+        // Cache the signed URL for 50% of the expiry duration or 12 hours
+        const ttlMs = Math.min(expiresInSeconds * 1000 * 0.5, 12 * 60 * 60 * 1000);
+        signedUrlCache.set(cleanPath, {
+          url: data.signedUrl,
+          expiresAt: Date.now() + ttlMs,
+        });
         return data.signedUrl;
       }
     } catch (err) {

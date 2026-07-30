@@ -141,7 +141,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return () => {
       channel.close();
     };
-  }, [router, pathname]);
+  }, [router]);
 
   // When Rate Modal is opened, ensure latest database values populate the fields
   useEffect(() => {

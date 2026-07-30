@@ -181,45 +181,44 @@ export default function CustomersPage() {
       const activeShopId = getActiveShopId();
       const preGenCustId = await generateNextCustomerId(activeShopId);
 
-      const finalPhotoUrl = photoUrl
-        ? await uploadToSupabaseStorage(photoUrl, {
-            shopId: activeShopId,
-            customerName: fullName,
-            customerId: preGenCustId,
-            uniqueId: `photo-${Date.now()}`,
-            docType: 'Passport-Photo',
-          })
-        : '';
-
-      const finalAadhaarFrontUrl = aadhaarFrontUrl
-        ? await uploadToSupabaseStorage(aadhaarFrontUrl, {
-            shopId: activeShopId,
-            customerName: fullName,
-            customerId: preGenCustId,
-            uniqueId: `aadhaar-front-${Date.now()}`,
-            docType: 'Aadhaar-Card-Front',
-          })
-        : '';
-
-      const finalAadhaarBackUrl = aadhaarBackUrl
-        ? await uploadToSupabaseStorage(aadhaarBackUrl, {
-            shopId: activeShopId,
-            customerName: fullName,
-            customerId: preGenCustId,
-            uniqueId: `aadhaar-back-${Date.now()}`,
-            docType: 'Aadhaar-Card-Back',
-          })
-        : '';
-
-      const finalPanUrl = panUrl
-        ? await uploadToSupabaseStorage(panUrl, {
-            shopId: activeShopId,
-            customerName: fullName,
-            customerId: preGenCustId,
-            uniqueId: `pan-${Date.now()}`,
-            docType: 'PAN-Card',
-          })
-        : '';
+      const [finalPhotoUrl, finalAadhaarFrontUrl, finalAadhaarBackUrl, finalPanUrl] = await Promise.all([
+        photoUrl
+          ? uploadToSupabaseStorage(photoUrl, {
+              shopId: activeShopId,
+              customerName: fullName,
+              customerId: preGenCustId,
+              uniqueId: `photo-${Date.now()}`,
+              docType: 'Passport-Photo',
+            })
+          : Promise.resolve(''),
+        aadhaarFrontUrl
+          ? uploadToSupabaseStorage(aadhaarFrontUrl, {
+              shopId: activeShopId,
+              customerName: fullName,
+              customerId: preGenCustId,
+              uniqueId: `aadhaar-front-${Date.now()}`,
+              docType: 'Aadhaar-Card-Front',
+            })
+          : Promise.resolve(''),
+        aadhaarBackUrl
+          ? uploadToSupabaseStorage(aadhaarBackUrl, {
+              shopId: activeShopId,
+              customerName: fullName,
+              customerId: preGenCustId,
+              uniqueId: `aadhaar-back-${Date.now()}`,
+              docType: 'Aadhaar-Card-Back',
+            })
+          : Promise.resolve(''),
+        panUrl
+          ? uploadToSupabaseStorage(panUrl, {
+              shopId: activeShopId,
+              customerName: fullName,
+              customerId: preGenCustId,
+              uniqueId: `pan-${Date.now()}`,
+              docType: 'PAN-Card',
+            })
+          : Promise.resolve(''),
+      ]);
 
       setSubmittingStepText('Creating Customer Record...');
       const created = await db.createCustomer({

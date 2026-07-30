@@ -37,7 +37,22 @@ const supabaseAdmin = (supabaseUrl && supabaseSecretKey && !supabaseSecretKey.in
 const processedRequestUuidSet = new Set<string>();
 const broadcastChannel = typeof window !== 'undefined' ? new BroadcastChannel('suvarnaloan-sync') : null;
 
+const dbQueryCache = new Map<string, { data: any; expiresAt: number }>();
+
+export const clearDbCache = (table?: string) => {
+  if (!table) {
+    dbQueryCache.clear();
+    return;
+  }
+  for (const key of dbQueryCache.keys()) {
+    if (key.includes(table)) {
+      dbQueryCache.delete(key);
+    }
+  }
+};
+
 export const broadcastDbUpdate = (type: string) => {
+  clearDbCache(type);
   if (broadcastChannel) {
     broadcastChannel.postMessage({ type: 'DB_UPDATE', table: type, timestamp: Date.now() });
   }
@@ -394,6 +409,14 @@ export const db = {
 
   // ── Customer API ──────────────────────────────────────────
   async getCustomers(shopId: string): Promise<Customer[]> {
+    if (!shopId) return [];
+
+    const cacheKey = `customers_${shopId}`;
+    const cached = dbQueryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
     if (isRealSupabase && supabase) {
       try {
         const { data, error } = await supabase
@@ -419,6 +442,7 @@ export const db = {
             })
           );
           setStorageItem('customers', refreshed);
+          dbQueryCache.set(cacheKey, { data: refreshed, expiresAt: Date.now() + 30000 });
           return refreshed;
         }
       } catch (err) {
@@ -427,6 +451,7 @@ export const db = {
     }
 
     const localCustomers = getStorageItem<Customer[]>('customers', DEFAULT_CUSTOMERS).filter(c => c.shop_id === shopId && !c.deleted_at);
+    dbQueryCache.set(cacheKey, { data: localCustomers, expiresAt: Date.now() + 30000 });
     return localCustomers;
   },
 
@@ -561,6 +586,14 @@ export const db = {
 
   // ── Gold Item & Valuation API ──────────────────────────────
   async getGoldItems(shopId: string): Promise<GoldItem[]> {
+    if (!shopId) return [];
+
+    const cacheKey = `gold_items_${shopId}`;
+    const cached = dbQueryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
     if (isRealSupabase && supabase) {
       try {
         const { data, error } = await supabase
@@ -571,6 +604,7 @@ export const db = {
           .order('created_at', { ascending: false });
         if (!error && data) {
           setStorageItem('gold_items', data as GoldItem[]);
+          dbQueryCache.set(cacheKey, { data: data as GoldItem[], expiresAt: Date.now() + 30000 });
           return data as GoldItem[];
         }
       } catch (err) {
@@ -579,6 +613,7 @@ export const db = {
     }
 
     const localItems = getStorageItem<GoldItem[]>('gold_items', DEFAULT_GOLD_ITEMS).filter(g => g.shop_id === shopId && !g.deleted_at);
+    dbQueryCache.set(cacheKey, { data: localItems, expiresAt: Date.now() + 30000 });
     return localItems;
   },
 
@@ -644,9 +679,21 @@ export const db = {
 
   // ── Loans API ──────────────────────────────────────────────
   async getLoans(shopId: string): Promise<Loan[]> {
-    const customersList = await this.getCustomers(shopId);
-    const goldItemsList = await this.getGoldItems(shopId);
-    const paymentsList = await this.getPayments(shopId);
+    if (!shopId) return [];
+
+    const cacheKey = `loans_${shopId}`;
+    const cached = dbQueryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    const [customersList, goldItemsList, paymentsList] = await Promise.all([
+      this.getCustomers(shopId),
+      this.getGoldItems(shopId),
+      this.getPayments(shopId),
+    ]);
+
+    let resultLoans: Loan[] = [];
 
     if (isRealSupabase && supabase) {
       try {
@@ -660,7 +707,7 @@ export const db = {
           const otherShopLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id !== shopId);
           setStorageItem('loans', [...otherShopLoans, ...(data as Loan[])]);
 
-          return (data as Loan[]).map((loan, idx) => {
+          resultLoans = (data as Loan[]).map((loan, idx) => {
             const cust = resolveLoanCustomer(loan, customersList, idx);
 
             const rawGold = goldItemsList.find(g => g.id === loan.gold_item_id || (g.id && loan.gold_item_id && String(g.id).trim() === String(loan.gold_item_id).trim())) || loan.gold_item;
@@ -691,6 +738,8 @@ export const db = {
               total_balance_due: fin.totalBalanceDue,
             };
           });
+          dbQueryCache.set(cacheKey, { data: resultLoans, expiresAt: Date.now() + 30000 });
+          return resultLoans;
         }
       } catch (err) {
         console.warn('getLoans Supabase warning:', err);
@@ -698,7 +747,7 @@ export const db = {
     }
 
     const localLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id === shopId && !l.deleted_at);
-    return localLoans.map((loan, idx) => {
+    resultLoans = localLoans.map((loan, idx) => {
       const cust = resolveLoanCustomer(loan, customersList, idx);
 
       const rawGold = goldItemsList.find(g => g.id === loan.gold_item_id || (g.id && loan.gold_item_id && String(g.id).trim() === String(loan.gold_item_id).trim())) || loan.gold_item;
@@ -730,6 +779,9 @@ export const db = {
         total_balance_due: fin.totalBalanceDue,
       };
     });
+
+    dbQueryCache.set(cacheKey, { data: resultLoans, expiresAt: Date.now() + 30000 });
+    return resultLoans;
   },
 
   async getLoanById(loanId: string, shopId?: string): Promise<Loan | null> {
@@ -834,7 +886,9 @@ export const db = {
         const { data, error } = await supabase
           .from('loans')
           .select('loan_number')
-          .eq('shop_id', activeShopId);
+          .eq('shop_id', activeShopId)
+          .order('created_at', { ascending: false })
+          .limit(25);
 
         if (!error && data && data.length > 0) {
           data.forEach((l) => {
@@ -848,7 +902,7 @@ export const db = {
               }
             }
           });
-          const nextNum = Math.max(data.length, maxSeq) + 1;
+          const nextNum = maxSeq + 1;
           const padded = String(nextNum).padStart(4, '0');
           return `GL-${currentYear}-${padded}`;
         }
@@ -994,6 +1048,14 @@ export const db = {
 
   // ── Payments API ──────────────────────────────────────────
   async getPayments(shopId: string): Promise<Payment[]> {
+    if (!shopId) return [];
+
+    const cacheKey = `payments_${shopId}`;
+    const cached = dbQueryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
     let cloudPayments: Payment[] = [];
     if (isRealSupabase && supabase) {
       try {
@@ -1027,6 +1089,7 @@ export const db = {
     });
 
     setStorageItem('payments', combined);
+    dbQueryCache.set(cacheKey, { data: combined, expiresAt: Date.now() + 30000 });
     return combined;
   },
 
@@ -1123,10 +1186,12 @@ export const db = {
 
   // ── Dashboard Metrics API ──────────────────────────────────
   async getDashboardMetrics(shopId: string): Promise<DashboardMetrics> {
-    const loans = await this.getLoans(shopId);
-    const goldItems = await this.getGoldItems(shopId);
-    const payments = await this.getPayments(shopId);
-    const shop = await this.getShop(shopId);
+    const [loans, goldItems, payments, shop] = await Promise.all([
+      this.getLoans(shopId),
+      this.getGoldItems(shopId),
+      this.getPayments(shopId),
+      this.getShop(shopId),
+    ]);
 
     const activeLoans = loans.filter(l => l.status === 'Active' || l.status === 'Overdue');
     const overdueLoans = loans.filter(l => l.status === 'Overdue');
