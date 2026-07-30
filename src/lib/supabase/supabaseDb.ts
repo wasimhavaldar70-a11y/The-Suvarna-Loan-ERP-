@@ -39,6 +39,9 @@ const supabaseAdmin = (supabaseUrl && supabaseSecretKey && !supabaseSecretKey.in
 
 function getDbClient() {
   if (!isRealSupabase) return null;
+  if (typeof window !== 'undefined') {
+    return supabase;
+  }
   return supabaseAdmin || supabase;
 }
 
@@ -753,48 +756,51 @@ export const db = {
             console.log("Raw Supabase loans count:", data.length);
             console.log("Loan numbers:", data.map((l: any) => l.loan_number));
 
-            const otherShopLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id !== shopId);
-            setStorageItem('loans', [...otherShopLoans, ...(data as Loan[])]);
+            resultLoans = (data as Loan[]).map((loan) => {
+              let cust = Array.isArray(loan.customer) ? loan.customer[0] : loan.customer;
+              if (!cust || !cust.full_name) {
+                cust = customersList.find(c => c.id === loan.customer_id) || resolveLoanCustomer(loan, customersList, 0);
+              }
 
-          resultLoans = (data as Loan[]).map((loan, idx) => {
-            const cust = resolveLoanCustomer(loan, customersList, idx);
+              let rawGold = Array.isArray(loan.gold_item) ? loan.gold_item[0] : loan.gold_item;
+              if (!rawGold || !rawGold.ornament_type) {
+                rawGold = goldItemsList.find(g => g.id === loan.gold_item_id) || rawGold;
+              }
 
-            const rawGold = goldItemsList.find(g => g.id === loan.gold_item_id || (g.id && loan.gold_item_id && String(g.id).trim() === String(loan.gold_item_id).trim())) || loan.gold_item;
-            const gold = Array.isArray(rawGold) ? rawGold[0] : rawGold;
+              const pmts = (loan.payments || []).map((p: any) => ({ ...p, amount: Number(p.amount) || 0 }));
+              const fin = calculateLoanFinancials(
+                loan.loan_amount,
+                loan.interest_rate,
+                loan.loan_date,
+                loan.due_date,
+                pmts,
+                loan.repayment_model || 'Bullet Repayment',
+                loan.tenure_months || 12
+              );
 
-            const pmts = paymentsList.filter(p => p.loan_id === loan.id || p.loan_id === loan.loan_number);
-            const fin = calculateLoanFinancials(
-              loan.loan_amount,
-              loan.interest_rate,
-              loan.loan_date,
-              loan.due_date,
-              pmts,
-              loan.repayment_model || 'Bullet Repayment',
-              loan.tenure_months || 12
-            );
+              const effectiveStatus = (loan.status !== 'Closed' && loan.status !== 'Auctioned' && fin.isOverdue)
+                ? 'Overdue'
+                : (loan.status || 'Active');
 
-            const effectiveStatus = (loan.status !== 'Closed' && loan.status !== 'Auctioned' && fin.isOverdue)
-              ? 'Overdue'
-              : (loan.status || 'Active');
+              return {
+                ...loan,
+                status: effectiveStatus,
+                customer: cust,
+                gold_item: rawGold,
+                payments: pmts,
+                accrued_interest: fin.netAccruedInterest,
+                total_balance_due: fin.totalBalanceDue,
+              };
+            });
 
-            return {
-              ...loan,
-              status: effectiveStatus,
-              customer: cust,
-              gold_item: gold,
-              payments: pmts,
-              accrued_interest: fin.netAccruedInterest,
-              total_balance_due: fin.totalBalanceDue,
-            };
-          });
-          dbQueryCache.set(cacheKey, { data: resultLoans, expiresAt: Date.now() + 3000 });
-          return resultLoans;
+            dbQueryCache.set(cacheKey, { data: resultLoans, expiresAt: Date.now() + 3000 });
+            return resultLoans;
+          }
         }
+      } catch (err) {
+        console.warn('getLoans Supabase warning:', err);
       }
-    } catch (err) {
-      console.warn('getLoans Supabase warning:', err);
     }
-  }
 
     const localLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id === shopId && !l.deleted_at);
     resultLoans = localLoans.map((loan, idx) => {
