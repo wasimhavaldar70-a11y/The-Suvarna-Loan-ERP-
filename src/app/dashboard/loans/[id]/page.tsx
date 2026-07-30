@@ -241,37 +241,12 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
 
           <div className="flex items-center gap-2">
             <button
-              onClick={handleDeleteLoan}
-              className="px-3.5 py-2 text-xs font-bold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-xl flex items-center gap-1.5 transition-colors"
-              title="Delete Loan Contract"
-            >
-              <Trash2 className="w-4 h-4 text-rose-600" />
-              <span>Delete Loan</span>
-            </button>
-
-            <button
               onClick={handlePrintEnterpriseStatement}
               className="px-3.5 py-2 text-xs font-extrabold bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white rounded-xl shadow-md flex items-center gap-1.5 transition-all"
               title="Print Enterprise Banking Grade Loan Statement PDF"
             >
               <Printer className="w-4 h-4 text-amber-100" />
               <span>Print Enterprise PDF 📜</span>
-            </button>
-
-            <button
-              onClick={() => setWaModalOpen(true)}
-              className="px-3.5 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow-md flex items-center gap-1.5 transition-all"
-            >
-              <MessageSquare className="w-4 h-4 text-emerald-100" />
-              <span>WhatsApp Alert</span>
-            </button>
-
-            <button
-              onClick={handlePrintReceipt}
-              className="px-3.5 py-2 text-xs font-bold bg-white text-slate-700 hover:bg-slate-50 border border-slate-200 rounded-xl shadow-2xs flex items-center gap-1.5"
-            >
-              <Printer className="w-4 h-4 text-slate-600" />
-              <span>Print Loan Contract</span>
             </button>
 
             {loan.status !== 'Closed' && (
