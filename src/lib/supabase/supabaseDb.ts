@@ -1305,25 +1305,65 @@ export const db = {
 
 /**
  * Subscribes to Realtime Supabase Database Change notifications across physical gadgets (Tablet, Mobile, PC).
+ * Features 150ms debouncing for cascading operations and explicit INSERT/UPDATE/DELETE event listeners per table.
  */
 export function setupRealtimeSync(shopId: string, onUpdate: () => void): () => void {
   if (typeof window === 'undefined' || !isRealSupabase || !supabase || !shopId) return () => {};
 
   try {
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const triggerDebouncedRefresh = (targetTable?: string) => {
+      // ⚡ Wipes ALL DB query caches (loans, customers, gold_items, payments, metrics) so every query refetches fresh cloud data from Supabase PostgreSQL!
+      clearDbCache();
+
+      if (refreshTimer) clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        onUpdate();
+      }, 150);
+    };
+
+    const tables = [
+      { name: 'loans', filter: `shop_id=eq.${shopId}` },
+      { name: 'customers', filter: `shop_id=eq.${shopId}` },
+      { name: 'gold_items', filter: `shop_id=eq.${shopId}` },
+      { name: 'payments', filter: `shop_id=eq.${shopId}` },
+      { name: 'shops', filter: `id=eq.${shopId}` },
+    ];
+
+    const events = ['INSERT', 'UPDATE', 'DELETE'] as const;
+
     const channelName = `shop-realtime-${shopId}-${Math.floor(Math.random() * 10000)}`;
-    const channel = supabase
-      .channel(channelName)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', filter: `shop_id=eq.${shopId}` },
-        () => {
-          clearDbCache();
-          onUpdate();
-        }
-      )
-      .subscribe();
+    let channel = supabase.channel(channelName);
+
+    tables.forEach((t) => {
+      events.forEach((evt) => {
+        channel = channel.on(
+          'postgres_changes',
+          { event: evt, schema: 'public', table: t.name, filter: t.filter },
+          (payload) => {
+            if (t.name === 'loans') {
+              console.log('🔥 Realtime loan event received:', payload);
+            } else {
+              console.log(`🔥 Realtime ${t.name} event received:`, payload);
+            }
+            triggerDebouncedRefresh(t.name);
+          }
+        );
+      });
+    });
+
+    channel.subscribe((status) => {
+      console.log('Realtime status:', status);
+      if (status === 'SUBSCRIBED') {
+        console.log(`[RealtimeSync] Successfully SUBSCRIBED to multi-table CDC (INSERT/UPDATE/DELETE) for shop: ${shopId}`);
+      } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+        console.warn(`[RealtimeSync] Realtime channel status: ${status} for shop: ${shopId}`);
+      }
+    });
 
     return () => {
+      if (refreshTimer) clearTimeout(refreshTimer);
       if (supabase) {
         supabase.removeChannel(channel);
       }
@@ -1333,3 +1373,6 @@ export function setupRealtimeSync(shopId: string, onUpdate: () => void): () => v
     return () => {};
   }
 }
+
+
+
