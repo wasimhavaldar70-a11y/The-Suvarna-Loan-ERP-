@@ -87,7 +87,8 @@ export default function DashboardPage() {
   const [formInterestRate, setFormInterestRate] = useState<number>(1.5);
   const [formScheme, setFormScheme] = useState<any>('Standard Monthly');
 
-  const loadData = async () => {
+  const loadData = async (bypassCache = false) => {
+    if (bypassCache) clearDbCache();
     setLoading(true);
     try {
       const session = getSessionUser();
@@ -109,15 +110,34 @@ export default function DashboardPage() {
       setGoldItems(g);
       if (c.length) setFormCustId(c[0].id);
     } catch (err) {
-      console.error(err);
-      toast.error("Failed to load dashboard data");
+      console.error('Load dashboard error:', err);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadData();
+    loadData(true);
+
+    const session = getSessionUser();
+    const activeShopId = session?.user?.shop_id || session?.shop?.id || '';
+
+    const handleFocus = () => {
+      loadData(true);
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    const cleanupRealtime = setupRealtimeSync(activeShopId, () => {
+      loadData(true);
+    });
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+      cleanupRealtime();
+    };
   }, []);
 
   // Run calculation when calculator inputs change

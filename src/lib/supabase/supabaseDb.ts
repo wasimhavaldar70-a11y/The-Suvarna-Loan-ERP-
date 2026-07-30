@@ -1286,3 +1286,36 @@ export const db = {
     };
   },
 };
+
+/**
+ * Subscribes to Realtime Supabase Database Change notifications across physical gadgets (Tablet, Mobile, PC).
+ */
+export function setupRealtimeSync(shopId: string, onUpdate: () => void): () => void {
+  if (!isRealSupabase || !supabase || !shopId) return () => {};
+
+  try {
+    const channelName = `shop-realtime-${shopId}-${Math.floor(Math.random() * 10000)}`;
+    const channel = supabase
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', filter: `shop_id=eq.${shopId}` },
+        () => {
+          clearDbCache();
+          onUpdate();
+        }
+      )
+      .subscribe();
+
+    return () => {
+      try {
+        supabase.removeChannel(channel);
+      } catch (err) {
+        console.warn('Realtime channel cleanup warning:', err);
+      }
+    };
+  } catch (err) {
+    console.warn('setupRealtimeSync exception:', err);
+    return () => {};
+  }
+}

@@ -11,7 +11,7 @@ import { Coins, Plus, Search, Filter, FileSpreadsheet, Eye, Trash2 } from 'lucid
 import { toast } from 'sonner';
 import DashboardLayout from '../../../components/DashboardLayout';
 import { CreateGoldLoanModal } from '../../../components/CreateGoldLoanModal';
-import { db } from '../../../lib/supabase/supabaseDb';
+import { db, setupRealtimeSync, clearDbCache } from '../../../lib/supabase/supabaseDb';
 import { getSessionUser } from '../../../lib/supabase/client';
 import { Loan } from '../../../types';
 import { formatCurrency, formatWeight, formatDate } from '../../../lib/utils';
@@ -24,7 +24,8 @@ export default function LoansPage() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [createLoanModalOpen, setCreateLoanModalOpen] = useState(false);
 
-  const loadLoans = () => {
+  const loadLoans = (bypassCache = false) => {
+    if (bypassCache) clearDbCache('loans');
     setLoading(true);
     const session = getSessionUser();
     const shopId = session?.user?.shop_id || session?.shop?.id || '';
@@ -39,7 +40,27 @@ export default function LoansPage() {
   };
 
   useEffect(() => {
-    loadLoans();
+    loadLoans(true);
+
+    const session = getSessionUser();
+    const shopId = session?.user?.shop_id || session?.shop?.id || '';
+
+    const handleFocus = () => {
+      loadLoans(true);
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    const cleanupRealtime = setupRealtimeSync(shopId, () => {
+      loadLoans(true);
+    });
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+      cleanupRealtime();
+    };
   }, []);
 
   const filtered = useMemo(() => {
