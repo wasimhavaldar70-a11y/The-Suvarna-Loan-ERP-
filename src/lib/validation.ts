@@ -209,7 +209,7 @@ export function validatePanCard(pan: string): { isValid: boolean; error?: string
 }
 
 /**
- * 3. Government Identity Verification - Aadhaar Card (UIDAI Standard & Verhoeff Checksum)
+ * 3. Government Identity Verification - Aadhaar Card (12 Digits Standard Format)
  */
 export function validateAadhaar(aadhaar: string): { isValid: boolean; error?: string; cleaned: string } {
   const cleaned = (aadhaar || '').replace(/[\s-]/g, '');
@@ -230,14 +230,6 @@ export function validateAadhaar(aadhaar: string): { isValid: boolean; error?: st
     return {
       isValid: false,
       error: 'Invalid Aadhaar Card number: Aadhaar numbers issued by UIDAI cannot start with 0 or 1',
-      cleaned,
-    };
-  }
-
-  if (!validateVerhoeffChecksum(cleaned)) {
-    return {
-      isValid: false,
-      error: 'Invalid Aadhaar Card checksum: The entered 12-digit number failed UIDAI Verhoeff checksum validation',
       cleaned,
     };
   }
