@@ -74,25 +74,47 @@ export async function updateSession(request: NextRequest) {
     }
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
+  let user: any = null;
+  let userRole: string | undefined = undefined;
+
+  try {
+    const { data } = await supabase.auth.getUser();
+    if (data?.user) {
+      user = data.user;
+      userRole = user.user_metadata?.role;
+    }
+  } catch (err) {
+    console.warn('Middleware auth.getUser warning:', err);
+  }
+
+  // Fallback: Support suvarna_session cookie
+  if (!user) {
+    const suvarnaCookie = request.cookies.get('suvarna_session')?.value;
+    if (suvarnaCookie) {
+      try {
+        const parsed = JSON.parse(decodeURIComponent(suvarnaCookie));
+        if (parsed?.user?.id) {
+          user = parsed.user;
+          userRole = parsed.user.role;
+        }
+      } catch (err) {
+        console.warn('Middleware suvarna_session cookie parse warning:', err);
+      }
+    }
+  }
 
   // Edge Route Guard: Protect /dashboard and /admin routes
-  // 1. Unauthenticated users cannot access protected routes
   if (!user) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('redirect', pathname);
     return NextResponse.redirect(loginUrl);
   }
 
-  // 2. Role-based route enforcement (prevents cross-role access)
-  const userRole = user.user_metadata?.role;
-
-  // Shop Owners/Staff CANNOT access /admin/* routes
+  // Role-based route enforcement (prevents cross-role access)
   if (pathname.startsWith('/admin') && userRole !== 'Super Admin') {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
 
-  // Super Admins accessing /dashboard (not /admin/dashboard) get redirected
   if (pathname.startsWith('/dashboard') && !pathname.startsWith('/admin') && userRole === 'Super Admin') {
     return NextResponse.redirect(new URL('/admin/dashboard', request.url));
   }
