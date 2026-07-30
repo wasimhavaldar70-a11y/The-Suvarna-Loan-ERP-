@@ -33,7 +33,7 @@ import {
   Calendar,
 } from 'lucide-react';
 import { getSessionUser, setSessionUser, supabase, isRealSupabase } from '../lib/supabase/client';
-import { db } from '../lib/supabase/supabaseDb';
+import { db, setupRealtimeSync, clearDbCache } from '../lib/supabase/supabaseDb';
 import { User, Shop } from '../types';
 import { formatCurrency, getRoleBadgeClass } from '../lib/utils';
 import { Toaster, toast } from 'sonner';
@@ -123,25 +123,41 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
     setLoading(false);
 
+    const handleGlobalDataRefresh = async () => {
+      clearDbCache();
+      if (session.shop) {
+        const freshShop = await db.getShop(session.shop.id);
+        if (freshShop) {
+          setCurrentShop(freshShop);
+          setRate24k(freshShop.gold_rate_24k || 7650);
+          setRate22k(freshShop.gold_rate_22k || 7010);
+          setRate18k(freshShop.gold_rate_18k || 5738);
+        }
+      }
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('suvarnaloan-db-update'));
+      }
+    };
+
+    // 1. Supabase Realtime Subscription (Cross-Device Cloud Sync: Tablet ↔ PC ↔ Mobile)
+    let cleanupRealtime: (() => void) | null = null;
+    if (session.shop) {
+      cleanupRealtime = setupRealtimeSync(session.shop.id, handleGlobalDataRefresh);
+    }
+
+    // 2. BroadcastChannel (Same-Device Browser Tab Sync)
     let channel: BroadcastChannel | null = null;
     if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
       channel = new BroadcastChannel('suvarnaloan-sync');
       channel.onmessage = async (event) => {
         if (event.data && event.data.type === 'DB_UPDATE') {
-          if (session.shop) {
-            const freshShop = await db.getShop(session.shop.id);
-            if (freshShop) {
-              setCurrentShop(freshShop);
-              setRate24k(freshShop.gold_rate_24k || 7650);
-              setRate22k(freshShop.gold_rate_22k || 7010);
-              setRate18k(freshShop.gold_rate_18k || 5738);
-            }
-          }
+          handleGlobalDataRefresh();
         }
       };
     }
 
     return () => {
+      if (cleanupRealtime) cleanupRealtime();
       if (channel) channel.close();
     };
   }, [router]);
