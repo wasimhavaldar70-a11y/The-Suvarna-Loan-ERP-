@@ -1307,7 +1307,7 @@ export const db = {
  * Subscribes to Realtime Supabase Database Change notifications across physical gadgets (Tablet, Mobile, PC).
  */
 export function setupRealtimeSync(shopId: string, onUpdate: () => void): () => void {
-  if (!isRealSupabase || !supabase || !shopId) return () => {};
+  if (typeof window === 'undefined' || !isRealSupabase || !supabase || !shopId) return () => {};
 
   try {
     const channelName = `shop-realtime-${shopId}-${Math.floor(Math.random() * 10000)}`;

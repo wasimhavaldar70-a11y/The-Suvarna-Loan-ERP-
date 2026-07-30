@@ -18,6 +18,6 @@ export const isRealSupabase = Boolean(
   !supabaseUrl.includes('example.com')
 );
 
-export const supabase = isRealSupabase 
+export const supabase = (isRealSupabase && typeof window !== 'undefined')
   ? createClient(supabaseUrl, supabaseKey) 
   : null;
