@@ -162,7 +162,7 @@ export const db = {
     // 1. Direct Supabase query (works for both authenticated Shop Owners & Super Admins under RLS)
     if (isRealSupabase) {
       try {
-        const client = supabaseAdmin || supabase;
+        const client = (await getAuthClient()) || supabase;
         if (client) {
           const { data, error } = await client.from('shops').select('*').eq('id', shopId).single();
           if (!error && data) {
@@ -203,7 +203,7 @@ export const db = {
     const cleanEmail = email.trim().toLowerCase();
 
     if (isRealSupabase) {
-      const client = supabaseAdmin || supabase;
+      const client = (await getAuthClient()) || supabase;
       if (client) {
         // 1. Check shops table by owner email FIRST
         try {
@@ -276,7 +276,7 @@ export const db = {
 
     if (isRealSupabase) {
       try {
-        const client = supabaseAdmin || supabase;
+        const client = (await getAuthClient()) || supabase;
         if (client) {
           const { data, error } = await client.from('shops').select('*').order('created_at', { ascending: false });
           if (!error && data) {
