@@ -46,7 +46,7 @@ import DashboardLayout from '../../components/DashboardLayout';
 import { TouchCard } from '../../components/ui/TouchCard';
 import { LoadingButton } from '../../components/ui/LoadingButton';
 import { CreateGoldLoanModal } from '../../components/CreateGoldLoanModal';
-import { db } from '../../lib/supabase/supabaseDb';
+import { db, clearDbCache, setupRealtimeSync } from '../../lib/supabase/supabaseDb';
 import { getSessionUser } from '../../lib/supabase/client';
 import { DashboardMetrics, Loan, Customer, GoldItem } from '../../types';
 import { formatCurrency, formatWeight, formatDate } from '../../lib/utils';

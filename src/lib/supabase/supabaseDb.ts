@@ -1324,10 +1324,8 @@ export function setupRealtimeSync(shopId: string, onUpdate: () => void): () => v
       .subscribe();
 
     return () => {
-      try {
+      if (supabase) {
         supabase.removeChannel(channel);
-      } catch (err) {
-        console.warn('Realtime channel cleanup warning:', err);
       }
     };
   } catch (err) {
