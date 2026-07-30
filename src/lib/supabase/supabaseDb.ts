@@ -42,7 +42,7 @@ function getDbClient() {
 }
 
 const processedRequestUuidSet = new Set<string>();
-const broadcastChannel = typeof window !== 'undefined' ? new BroadcastChannel('suvarnaloan-sync') : null;
+const broadcastChannel = (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('suvarnaloan-sync') : null;
 
 const dbQueryCache = new Map<string, { data: any; expiresAt: number }>();
 

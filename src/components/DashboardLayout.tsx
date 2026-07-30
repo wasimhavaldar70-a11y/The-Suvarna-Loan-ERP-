@@ -123,23 +123,26 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
     setLoading(false);
 
-    const channel = new BroadcastChannel('suvarnaloan-sync');
-    channel.onmessage = async (event) => {
-      if (event.data && event.data.type === 'DB_UPDATE') {
-        if (session.shop) {
-          const freshShop = await db.getShop(session.shop.id);
-          if (freshShop) {
-            setCurrentShop(freshShop);
-            setRate24k(freshShop.gold_rate_24k || 7650);
-            setRate22k(freshShop.gold_rate_22k || 7010);
-            setRate18k(freshShop.gold_rate_18k || 5738);
+    let channel: BroadcastChannel | null = null;
+    if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
+      channel = new BroadcastChannel('suvarnaloan-sync');
+      channel.onmessage = async (event) => {
+        if (event.data && event.data.type === 'DB_UPDATE') {
+          if (session.shop) {
+            const freshShop = await db.getShop(session.shop.id);
+            if (freshShop) {
+              setCurrentShop(freshShop);
+              setRate24k(freshShop.gold_rate_24k || 7650);
+              setRate22k(freshShop.gold_rate_22k || 7010);
+              setRate18k(freshShop.gold_rate_18k || 5738);
+            }
           }
         }
-      }
-    };
+      };
+    }
 
     return () => {
-      channel.close();
+      if (channel) channel.close();
     };
   }, [router]);
 
