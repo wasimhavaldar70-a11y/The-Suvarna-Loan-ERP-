@@ -36,28 +36,9 @@ const supabaseAdmin = (supabaseUrl && supabaseSecretKey && !supabaseSecretKey.in
     })
   : null;
 
-async function getAuthClient() {
+function getDbClient() {
   if (!isRealSupabase) return null;
-  if (supabaseAdmin) return supabaseAdmin;
-  if (supabase) {
-    try {
-      const token = await getAccessToken();
-      if (token && supabaseUrl && supabaseAnonKey) {
-        return createClient(supabaseUrl, supabaseAnonKey, {
-          global: {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          },
-          auth: { autoRefreshToken: false, persistSession: false },
-        });
-      }
-    } catch (err) {
-      console.warn('getAuthClient token header creation warning:', err);
-    }
-    return supabase;
-  }
-  return null;
+  return supabaseAdmin || supabase;
 }
 
 const processedRequestUuidSet = new Set<string>();
@@ -162,7 +143,7 @@ export const db = {
     // 1. Direct Supabase query (works for both authenticated Shop Owners & Super Admins under RLS)
     if (isRealSupabase) {
       try {
-        const client = (await getAuthClient()) || supabase;
+        const client = getDbClient();
         if (client) {
           const { data, error } = await client.from('shops').select('*').eq('id', shopId).single();
           if (!error && data) {
@@ -203,7 +184,7 @@ export const db = {
     const cleanEmail = email.trim().toLowerCase();
 
     if (isRealSupabase) {
-      const client = (await getAuthClient()) || supabase;
+      const client = getDbClient();
       if (client) {
         // 1. Check shops table by owner email FIRST
         try {
@@ -276,7 +257,7 @@ export const db = {
 
     if (isRealSupabase) {
       try {
-        const client = (await getAuthClient()) || supabase;
+        const client = getDbClient();
         if (client) {
           const { data, error } = await client.from('shops').select('*').order('created_at', { ascending: false });
           if (!error && data) {
@@ -455,7 +436,7 @@ export const db = {
 
     if (isRealSupabase) {
       try {
-        const client = (await getAuthClient()) || supabase;
+        const client = getDbClient();
         if (client) {
           const { data, error } = await client
             .from('customers')
@@ -540,7 +521,7 @@ export const db = {
 
     if (isRealSupabase) {
       try {
-        const client = await getAuthClient();
+        const client = getDbClient();
         if (client) {
           const { total_loans_count, active_loans_count, version, request_uuid, ...dbPayload } = newCust as any;
           let { data, error } = await client.from('customers').insert(dbPayload).select().single();
@@ -635,7 +616,7 @@ export const db = {
 
     if (isRealSupabase) {
       try {
-        const client = (await getAuthClient()) || supabase;
+        const client = getDbClient();
         if (client) {
           const { data, error } = await client
             .from('gold_items')
@@ -695,7 +676,7 @@ export const db = {
 
     if (isRealSupabase) {
       try {
-        const client = await getAuthClient();
+        const client = getDbClient();
         if (client) {
           const { customer, loans, version, request_uuid, ...rawPayload } = newItem as any;
           const dbPayload = {
@@ -746,7 +727,7 @@ export const db = {
 
     if (isRealSupabase) {
       try {
-        const client = (await getAuthClient()) || supabase;
+        const client = getDbClient();
         if (client) {
           const { data, error } = await client
             .from('loans')
@@ -995,7 +976,7 @@ export const db = {
 
     if (isRealSupabase) {
       try {
-        const client = await getAuthClient();
+        const client = getDbClient();
         if (client) {
           const { 
             customer, 
@@ -1073,7 +1054,7 @@ export const db = {
 
     if (isRealSupabase && supabase) {
       try {
-        const client = await getAuthClient();
+        const client = getDbClient();
         if (client) {
           const { data: dbLoan } = await client
             .from('loans')
