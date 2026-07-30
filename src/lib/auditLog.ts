@@ -31,15 +31,21 @@ export async function logAuditEvent(
 
   if (isRealSupabase && supabase) {
     try {
-      await supabase.from('audit_logs').insert({
+      const { error } = await supabase.from('audit_logs').insert({
+        id: log.id,
         shop_id: shopId,
         user_id: userId,
+        user_name: userName,
         action,
         table_name: tableName,
         record_id: recordId,
         old_data: oldData,
         new_data: newData,
+        created_at: log.created_at,
       });
+      if (error) {
+        console.warn('logAuditEvent Supabase error:', error.message);
+      }
     } catch (err) {
       console.warn('logAuditEvent Supabase warning:', err);
     }

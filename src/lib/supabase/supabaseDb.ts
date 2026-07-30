@@ -24,6 +24,7 @@ import {
 import { calculateGoldValuation, calculateLoanFinancials } from '../goldValuationEngine';
 import { uploadToSupabaseStorage, deleteCustomerFiles, getSignedDocumentUrl } from '../storageHelper';
 import { generateNextCustomerId, generateNextGoldItemId, generateNextLoanId, generateNextPaymentId, formatHumanId } from '../idGenerator';
+import { logAuditEvent } from '../auditLog';
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || '';
@@ -546,6 +547,19 @@ export const db = {
     }
 
     broadcastDbUpdate('customers');
+
+    const session = getSessionUser();
+    logAuditEvent(
+      newCust.shop_id,
+      session?.user?.id || 'system',
+      session?.user?.name || 'Staff User',
+      'CREATE',
+      'customers',
+      newCust.id,
+      null,
+      { full_name: newCust.full_name, mobile_number: newCust.mobile_number }
+    ).catch(() => {});
+
     return newCust;
   },
 
@@ -1018,6 +1032,19 @@ export const db = {
     }
 
     broadcastDbUpdate('loans');
+
+    const session = getSessionUser();
+    logAuditEvent(
+      newLoan.shop_id,
+      session?.user?.id || 'system',
+      session?.user?.name || 'Staff User',
+      'CREATE',
+      'loans',
+      newLoan.id,
+      null,
+      { loan_number: newLoan.loan_number, loan_amount: newLoan.loan_amount, customer_id: newLoan.customer_id }
+    ).catch(() => {});
+
     return newLoan;
   },
 
