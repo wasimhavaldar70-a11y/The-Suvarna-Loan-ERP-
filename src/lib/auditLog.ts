@@ -30,15 +30,19 @@ export async function logAuditEvent(
   };
 
   if (isRealSupabase && supabase) {
-    await supabase.from('audit_logs').insert({
-      shop_id: shopId,
-      user_id: userId,
-      action,
-      table_name: tableName,
-      record_id: recordId,
-      old_data: oldData,
-      new_data: newData,
-    });
+    try {
+      await supabase.from('audit_logs').insert({
+        shop_id: shopId,
+        user_id: userId,
+        action,
+        table_name: tableName,
+        record_id: recordId,
+        old_data: oldData,
+        new_data: newData,
+      });
+    } catch (err) {
+      console.warn('logAuditEvent Supabase warning:', err);
+    }
   }
 
   // Local storage fallback for audit log trail
@@ -52,13 +56,17 @@ export async function logAuditEvent(
 
 export async function getAuditLogs(shopId: string): Promise<AuditLog[]> {
   if (isRealSupabase && supabase) {
-    const { data } = await supabase
-      .from('audit_logs')
-      .select('*')
-      .eq('shop_id', shopId)
-      .order('created_at', { ascending: false })
-      .limit(50);
-    if (data && data.length) return data as AuditLog[];
+    try {
+      const { data } = await supabase
+        .from('audit_logs')
+        .select('*')
+        .eq('shop_id', shopId)
+        .order('created_at', { ascending: false })
+        .limit(50);
+      if (data) return data as AuditLog[];
+    } catch (err) {
+      console.warn('getAuditLogs Supabase warning:', err);
+    }
   }
 
   if (typeof window !== 'undefined') {

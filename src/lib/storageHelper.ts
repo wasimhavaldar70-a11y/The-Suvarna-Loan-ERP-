@@ -376,32 +376,30 @@ export async function deleteCustomerFiles(
     try {
       // 1. List files in human readable folder
       const { data: files } = await supabase.storage
-        .from(BUCKET_NAME)
-        .list(`${shopFolder}/${custFolder}`);
+        ? await supabase.storage.from(BUCKET_NAME).list(`${shopFolder}/${custFolder}`)
+        : { data: null };
 
       if (files && files.length > 0) {
         const paths = files.map((f) => `${shopFolder}/${custFolder}/${f.name}`);
-        await supabase.storage.from(BUCKET_NAME).remove(paths);
+        await supabase.storage?.from(BUCKET_NAME).remove(paths);
       }
 
       // 2. Also check legacy unformatted path shop_id/customer_id/
       const legacyShopId = sanitizeHumanName(activeShopId);
       const legacyCustId = sanitizeHumanName(customerId);
       const { data: legacyFiles } = await supabase.storage
-        .from(BUCKET_NAME)
-        .list(`${legacyShopId}/${legacyCustId}`);
+        ? await supabase.storage.from(BUCKET_NAME).list(`${legacyShopId}/${legacyCustId}`)
+        : { data: null };
 
       if (legacyFiles && legacyFiles.length > 0) {
         const legacyPaths = legacyFiles.map((f) => `${legacyShopId}/${legacyCustId}/${f.name}`);
-        await supabase.storage.from(BUCKET_NAME).remove(legacyPaths);
+        await supabase.storage?.from(BUCKET_NAME).remove(legacyPaths);
       }
 
       // 3. Purge DB records from customer_documents table
-      await supabase
-        .from('customer_documents')
-        .delete()
-        .eq('shop_id', activeShopId)
-        .eq('customer_id', customerId);
+      if (supabase.from) {
+        await supabase.from('customer_documents').delete().eq('shop_id', activeShopId).eq('customer_id', customerId);
+      }
 
       return true;
     } catch (err) {
