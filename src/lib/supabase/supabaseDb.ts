@@ -30,6 +30,12 @@ const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || '';
 
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
+const supabaseAdmin = (supabaseUrl && supabaseSecretKey && !supabaseSecretKey.includes('placeholder'))
+  ? createClient(supabaseUrl, supabaseSecretKey, {
+      auth: { autoRefreshToken: false, persistSession: false },
+    })
+  : null;
+
 async function getAuthClient() {
   if (!isRealSupabase) return null;
   if (supabaseAdmin) return supabaseAdmin;
