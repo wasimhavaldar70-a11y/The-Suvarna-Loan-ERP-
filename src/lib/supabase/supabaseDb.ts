@@ -464,7 +464,6 @@ export const db = {
                 };
               })
             );
-            setStorageItem('customers', refreshed);
             dbQueryCache.set(cacheKey, { data: refreshed, expiresAt: Date.now() + 3000 });
             return refreshed;
           }
@@ -642,7 +641,6 @@ export const db = {
             .is('deleted_at', null)
             .order('created_at', { ascending: false });
           if (!error && data) {
-            setStorageItem('gold_items', data as GoldItem[]);
             dbQueryCache.set(cacheKey, { data: data as GoldItem[], expiresAt: Date.now() + 3000 });
             return data as GoldItem[];
           }
@@ -734,12 +732,6 @@ export const db = {
       return cached.data;
     }
 
-    const [customersList, goldItemsList, paymentsList] = await Promise.all([
-      this.getCustomers(shopId),
-      this.getGoldItems(shopId),
-      this.getPayments(shopId),
-    ]);
-
     let resultLoans: Loan[] = [];
 
     if (isRealSupabase) {
@@ -757,15 +749,13 @@ export const db = {
             console.log("Loan numbers:", data.map((l: any) => l.loan_number));
 
             resultLoans = (data as Loan[]).map((loan) => {
-              let cust = Array.isArray(loan.customer) ? loan.customer[0] : loan.customer;
-              if (!cust || !cust.full_name) {
-                cust = customersList.find(c => c.id === loan.customer_id) || resolveLoanCustomer(loan, customersList, 0);
-              }
+              const cust = Array.isArray(loan.customer) ? loan.customer[0] : (loan.customer || {
+                id: loan.customer_id,
+                full_name: (loan as any).customer_name || 'Customer Record Unlinked',
+                mobile_number: (loan as any).customer_mobile || 'N/A',
+              });
 
-              let rawGold = Array.isArray(loan.gold_item) ? loan.gold_item[0] : loan.gold_item;
-              if (!rawGold || !rawGold.ornament_type) {
-                rawGold = goldItemsList.find(g => g.id === loan.gold_item_id) || rawGold;
-              }
+              const rawGold = Array.isArray(loan.gold_item) ? loan.gold_item[0] : (loan.gold_item || {});
 
               const pmts = (loan.payments || []).map((p: any) => ({ ...p, amount: Number(p.amount) || 0 }));
               const fin = calculateLoanFinancials(
@@ -801,6 +791,12 @@ export const db = {
         console.warn('getLoans Supabase warning:', err);
       }
     }
+
+    const [customersList, goldItemsList, paymentsList] = await Promise.all([
+      this.getCustomers(shopId),
+      this.getGoldItems(shopId),
+      this.getPayments(shopId),
+    ]);
 
     const localLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id === shopId && !l.deleted_at);
     resultLoans = localLoans.map((loan, idx) => {
