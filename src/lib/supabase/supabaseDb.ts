@@ -665,7 +665,13 @@ export const db = {
       try {
         const client = supabaseAdmin || supabase;
         if (client) {
-          const { customer, loans, version, request_uuid, ...dbPayload } = newItem as any;
+          const { customer, loans, version, request_uuid, ...rawPayload } = newItem as any;
+          const dbPayload = {
+            ...rawPayload,
+            front_image_url: rawPayload.front_image_url || rawPayload.photo_url || '',
+          };
+          delete dbPayload.photo_url;
+
           let { error } = await client.from('gold_items').insert(dbPayload);
           if (error && (error.message.includes('duplicate key') || error.message.includes('gold_items_pkey'))) {
             const retryId = `item-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -674,6 +680,7 @@ export const db = {
             const { error: retryErr } = await client.from('gold_items').insert(dbPayload);
             if (retryErr) throw new Error(`Database error: ${retryErr.message}`);
           } else if (error) {
+            console.error('Supabase createGoldItem error:', error.message, error);
             throw new Error(`Database error: ${error.message}`);
           }
         }
@@ -955,7 +962,19 @@ export const db = {
       try {
         const client = supabaseAdmin || supabase;
         if (client) {
-          const { customer, gold_item, payments, accrued_interest, total_balance_due, version, request_uuid, ...dbPayload } = newLoan as any;
+          const { 
+            customer, 
+            gold_item, 
+            payments, 
+            accrued_interest, 
+            total_balance_due, 
+            tenure_months, 
+            repayment_model, 
+            version, 
+            request_uuid, 
+            ...dbPayload 
+          } = newLoan as any;
+
           let { error } = await client.from('loans').insert(dbPayload);
 
           if (error && (error.message.includes('duplicate key') || error.message.includes('loans_pkey') || error.message.includes('loans_loan_number_key'))) {
@@ -969,6 +988,7 @@ export const db = {
             const { error: retryErr } = await client.from('loans').insert(dbPayload);
             if (retryErr) throw new Error(`Database error: ${retryErr.message}`);
           } else if (error) {
+            console.error('Supabase createLoan error:', error.message, error);
             throw new Error(`Database error: ${error.message}`);
           }
         }
