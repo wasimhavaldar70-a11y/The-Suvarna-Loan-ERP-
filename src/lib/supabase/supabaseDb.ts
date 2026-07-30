@@ -95,26 +95,36 @@ const FALLBACK_CUSTOMERS = [
 ];
 
 function resolveLoanCustomer(loan: any, customersList: Customer[], index: number): Customer {
-  const rawCust = customersList.find(c => c.id === loan.customer_id || (c.id && loan.customer_id && String(c.id).trim() === String(loan.customer_id).trim())) || loan.customer;
-  let cust = Array.isArray(rawCust) ? rawCust[0] : rawCust;
-  
-  if (!cust || !cust.full_name || cust.full_name.trim() === 'Customer' || cust.full_name.trim() === 'Borrower Customer') {
-    if (customersList.length > 0) {
-      cust = customersList[index % customersList.length];
-    } else {
-      const fb = FALLBACK_CUSTOMERS[index % FALLBACK_CUSTOMERS.length];
-      cust = {
-        id: loan.customer_id || `cust-${index + 1}`,
-        shop_id: loan.shop_id || '',
-        full_name: fb.full_name,
-        mobile_number: fb.mobile_number,
-        status: 'Active',
-        created_at: new Date().toISOString(),
-      };
-    }
+  // 1. Direct DB Joined Customer from Supabase (Highest Priority for Multi-Device Consistency)
+  let directCust = Array.isArray(loan.customer) ? loan.customer[0] : loan.customer;
+  if (directCust && directCust.full_name && directCust.full_name.trim() !== '' && directCust.full_name.trim() !== 'Customer') {
+    return directCust as Customer;
   }
 
-  return cust as Customer;
+  // 2. Normalized Customer ID Matching (Supports cust-000001, cust-1, etc.)
+  const targetId = String(loan.customer_id || '').trim().toLowerCase();
+  const normalizedTargetId = targetId.replace(/^(cust)[-_]?0*/i, '$1-');
+
+  const matched = customersList.find(c => {
+    if (!c || !c.id) return false;
+    const cid = String(c.id).trim().toLowerCase();
+    const normalizedCid = cid.replace(/^(cust)[-_]?0*/i, '$1-');
+    return cid === targetId || normalizedCid === normalizedTargetId;
+  });
+
+  if (matched && matched.full_name) {
+    return matched;
+  }
+
+  // 3. Deterministic Placeholder (NEVER use modulo index fallbacks that vary by device)
+  return {
+    id: loan.customer_id || `cust-unknown`,
+    shop_id: loan.shop_id || '',
+    full_name: loan.customer_name || 'Customer Record Unlinked',
+    mobile_number: loan.customer_mobile || 'N/A',
+    status: 'Active',
+    created_at: new Date().toISOString(),
+  } as Customer;
 }
 
 // Database Service API
@@ -442,7 +452,7 @@ export const db = {
             })
           );
           setStorageItem('customers', refreshed);
-          dbQueryCache.set(cacheKey, { data: refreshed, expiresAt: Date.now() + 30000 });
+          dbQueryCache.set(cacheKey, { data: refreshed, expiresAt: Date.now() + 3000 });
           return refreshed;
         }
       } catch (err) {
@@ -451,7 +461,7 @@ export const db = {
     }
 
     const localCustomers = getStorageItem<Customer[]>('customers', DEFAULT_CUSTOMERS).filter(c => c.shop_id === shopId && !c.deleted_at);
-    dbQueryCache.set(cacheKey, { data: localCustomers, expiresAt: Date.now() + 30000 });
+    dbQueryCache.set(cacheKey, { data: localCustomers, expiresAt: Date.now() + 3000 });
     return localCustomers;
   },
 
@@ -604,7 +614,7 @@ export const db = {
           .order('created_at', { ascending: false });
         if (!error && data) {
           setStorageItem('gold_items', data as GoldItem[]);
-          dbQueryCache.set(cacheKey, { data: data as GoldItem[], expiresAt: Date.now() + 30000 });
+          dbQueryCache.set(cacheKey, { data: data as GoldItem[], expiresAt: Date.now() + 3000 });
           return data as GoldItem[];
         }
       } catch (err) {
@@ -613,7 +623,7 @@ export const db = {
     }
 
     const localItems = getStorageItem<GoldItem[]>('gold_items', DEFAULT_GOLD_ITEMS).filter(g => g.shop_id === shopId && !g.deleted_at);
-    dbQueryCache.set(cacheKey, { data: localItems, expiresAt: Date.now() + 30000 });
+    dbQueryCache.set(cacheKey, { data: localItems, expiresAt: Date.now() + 3000 });
     return localItems;
   },
 
@@ -738,7 +748,7 @@ export const db = {
               total_balance_due: fin.totalBalanceDue,
             };
           });
-          dbQueryCache.set(cacheKey, { data: resultLoans, expiresAt: Date.now() + 30000 });
+          dbQueryCache.set(cacheKey, { data: resultLoans, expiresAt: Date.now() + 3000 });
           return resultLoans;
         }
       } catch (err) {
@@ -780,7 +790,7 @@ export const db = {
       };
     });
 
-    dbQueryCache.set(cacheKey, { data: resultLoans, expiresAt: Date.now() + 30000 });
+    dbQueryCache.set(cacheKey, { data: resultLoans, expiresAt: Date.now() + 3000 });
     return resultLoans;
   },
 
@@ -1089,7 +1099,7 @@ export const db = {
     });
 
     setStorageItem('payments', combined);
-    dbQueryCache.set(cacheKey, { data: combined, expiresAt: Date.now() + 30000 });
+    dbQueryCache.set(cacheKey, { data: combined, expiresAt: Date.now() + 3000 });
     return combined;
   },
 
