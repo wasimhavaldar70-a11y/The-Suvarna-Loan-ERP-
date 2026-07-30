@@ -319,14 +319,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     <div className="flex min-h-screen bg-slate-50 text-slate-900 font-sans">
       <Toaster position="top-right" richColors />
 
-      {/* Desktop Sidebar */}
+      {/* Desktop Sidebar (Fixed Sticky position - does NOT scroll away with page content) */}
       <aside
-        className={`hidden md:flex flex-col border-r border-slate-800 bg-slate-950 text-white transition-all duration-300 relative z-30 ${
+        className={`hidden md:flex flex-col border-r border-slate-800 bg-slate-950 text-white transition-all duration-300 sticky top-0 h-screen shrink-0 z-30 overflow-hidden ${
           isCollapsed ? 'w-20' : 'w-64'
         }`}
       >
         {/* Brand Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-800/80">
+        <div className="flex items-center justify-between p-4 border-b border-slate-800/80 shrink-0">
           {!isCollapsed && (
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-600 via-amber-500 to-amber-300 flex items-center justify-center font-bold text-slate-950 shadow-md gold-glow">
@@ -351,9 +351,41 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </button>
         </div>
 
+        {/* User Profile Card (Moved UP directly near Header & Rates for easy access) */}
+        <div className="mx-3 mt-3 mb-1 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between shrink-0">
+          {!isCollapsed ? (
+            <>
+              <div className="flex items-center gap-2.5 overflow-hidden">
+                <div className="w-8 h-8 rounded-full bg-slate-800 border border-amber-500/40 flex items-center justify-center font-bold text-amber-400 text-xs shrink-0 shadow-xs">
+                  {currentUser.name[0]}
+                </div>
+                <div className="flex flex-col truncate">
+                  <span className="text-xs font-bold text-slate-100 truncate">{currentUser.name}</span>
+                  <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">{currentUser.role}</span>
+                </div>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors shrink-0"
+                title="Sign out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={handleLogout}
+              className="w-full flex justify-center p-1 text-slate-400 hover:text-rose-400 rounded-lg"
+              title="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+
         {/* Live Gold Rate Banner Badge */}
         {!isCollapsed && (
-          <div className="m-3 p-3 rounded-xl bg-slate-900 border border-amber-500/30 flex items-center justify-between">
+          <div className="mx-3 my-2 p-3 rounded-xl bg-slate-900 border border-amber-500/30 flex items-center justify-between shrink-0">
             <div className="flex flex-col">
               <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider flex items-center gap-1">
                 <TrendingUp className="w-3 h-3" /> Live 24K Rate
@@ -370,7 +402,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         )}
 
         {/* Navigation Sections */}
-        <nav className="flex-1 px-3 py-3 space-y-4 overflow-y-auto">
+        <nav className="flex-1 px-3 py-2 space-y-4 overflow-y-auto">
           {navSections.map((sec) => (
             <div key={sec.group} className="space-y-1">
               {!isCollapsed && (
@@ -400,38 +432,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
           ))}
         </nav>
-
-        {/* User Footer */}
-        <div className="p-3 border-t border-slate-800/80 bg-slate-950">
-          {!isCollapsed ? (
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2.5 overflow-hidden">
-                <div className="w-8 h-8 rounded-full bg-slate-800 border border-amber-500/30 flex items-center justify-center font-bold text-amber-400 text-xs shrink-0">
-                  {currentUser.name[0]}
-                </div>
-                <div className="flex flex-col truncate">
-                  <span className="text-xs font-semibold text-slate-200 truncate">{currentUser.name}</span>
-                  <span className="text-[10px] text-amber-400 font-medium">{currentUser.role}</span>
-                </div>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-slate-900 rounded-lg transition-colors"
-                title="Sign out"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={handleLogout}
-              className="w-full flex justify-center p-2 text-slate-400 hover:text-rose-400 rounded-lg"
-              title="Sign out"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          )}
-        </div>
       </aside>
 
       {/* Mobile Sidebar Overlay */}
@@ -462,6 +462,26 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </button>
         </div>
 
+        {/* Mobile User Profile Card */}
+        <div className="mx-4 mt-3 mb-1 p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-full bg-slate-800 border border-amber-500/40 flex items-center justify-center font-bold text-amber-400 text-xs shrink-0">
+              {currentUser.name[0]}
+            </div>
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-white">{currentUser.name}</span>
+              <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">{currentUser.role}</span>
+            </div>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+            title="Sign out"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
+
         <nav className="flex-1 p-4 space-y-4 overflow-y-auto">
           {navSections.map((sec) => (
             <div key={sec.group} className="space-y-1">
@@ -488,21 +508,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
           ))}
         </nav>
-
-        <div className="p-4 border-t border-slate-800 bg-slate-900">
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col">
-              <span className="text-xs font-bold text-white">{currentUser.name}</span>
-              <span className="text-[10px] text-amber-400 font-semibold">{currentUser.role}</span>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="px-3 py-1.5 bg-rose-500/20 text-rose-300 text-xs rounded-lg font-medium"
-            >
-              Sign out
-            </button>
-          </div>
-        </div>
       </aside>
 
       {/* Main Content Area */}
