@@ -35,10 +35,14 @@ async function getNextSequentialId(
   let maxSeq = 0;
   const prefixPattern = new RegExp(`^${prefix}[-_]?(\\d+)$`, 'i');
 
-  // 1. Scan Cloud Supabase Table
+  // 1. Scan Cloud Supabase Table (limit to recent 25 records for instant performance)
   if (isRealSupabase && supabase) {
     try {
-      const { data } = await supabase.from(table).select('id');
+      const { data } = await supabase
+        .from(table)
+        .select('id')
+        .order('created_at', { ascending: false })
+        .limit(25);
       if (data && Array.isArray(data)) {
         data.forEach((row: any) => {
           if (row?.id) {

@@ -87,17 +87,22 @@ export function formatDocumentFileName(docType: string, uniqueId?: string, ext: 
   return `${cleanType}_${cleanId}.${ext}`;
 }
 
+let isBucketVerified = false;
+
 /**
  * Ensures the "Uploaded-Documents" storage bucket exists in Supabase.
  * Forces public: false for 100% private RLS protection.
  */
 export async function ensureUploadedDocumentsBucketExists(): Promise<string> {
+  if (isBucketVerified) return BUCKET_NAME;
+
   if (isRealSupabase && supabase) {
     try {
       const { data: bucket } = await supabase.storage.getBucket(BUCKET_NAME);
       if (!bucket) {
         await supabase.storage.createBucket(BUCKET_NAME, { public: false });
       }
+      isBucketVerified = true;
     } catch (err) {
       console.warn(`ensureUploadedDocumentsBucketExists (${BUCKET_NAME}) warning:`, err);
     }

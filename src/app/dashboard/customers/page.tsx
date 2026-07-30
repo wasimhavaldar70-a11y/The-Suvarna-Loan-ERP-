@@ -241,7 +241,8 @@ export default function CustomersPage() {
         request_uuid: requestUuid,
       });
 
-      await logAuditEvent(
+      // Asynchronous audit logging (non-blocking)
+      logAuditEvent(
         activeShopId,
         'user-001',
         'Shop Owner',
@@ -250,8 +251,10 @@ export default function CustomersPage() {
         created.id,
         null,
         { full_name: fullName, mobile_number: mobile }
-      );
+      ).catch((err) => console.warn('Background audit log warning:', err));
 
+      // Instant UI State Update
+      setCustomers((prev) => [created, ...prev.filter((c) => c.id !== created.id)]);
       setSubmittingSuccess(true);
       setSubmittingStepText('✓ Customer Saved Successfully');
       toast.success(`✓ Customer ${fullName} saved successfully!`);
