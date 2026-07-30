@@ -394,7 +394,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
             <button
               onClick={() => setRateModalOpen(true)}
-              className="text-[11px] px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg font-bold transition-colors shadow-2xs"
+              className="text-[11px] px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg font-bold transition-all subtle-press shadow-2xs"
             >
               Update
             </button>
@@ -417,14 +417,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all duration-150 ${
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-semibold transition-all duration-120 subtle-press ${
                       isActive
                         ? 'bg-amber-500 text-slate-950 shadow-md font-bold'
                         : 'text-slate-400 hover:text-white hover:bg-slate-900'
                     } ${isCollapsed ? 'justify-center' : ''}`}
                     title={isCollapsed ? item.label : undefined}
                   >
-                    <Icon className="w-4 h-4 shrink-0" />
+                    <Icon className="w-4 h-4 shrink-0 transition-transform duration-120" />
                     {!isCollapsed && <span>{item.label}</span>}
                   </Link>
                 );
