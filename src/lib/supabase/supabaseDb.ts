@@ -28,11 +28,31 @@ import { generateNextCustomerId, generateNextGoldItemId, generateNextLoanId, gen
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || '';
 const supabaseSecretKey = process.env.SUPABASE_SECRET_KEY || '';
 
-const supabaseAdmin = (supabaseUrl && supabaseSecretKey && !supabaseSecretKey.includes('placeholder'))
-  ? createClient(supabaseUrl, supabaseSecretKey, {
-      auth: { autoRefreshToken: false, persistSession: false },
-    })
-  : null;
+const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+
+async function getAuthClient() {
+  if (!isRealSupabase) return null;
+  if (supabaseAdmin) return supabaseAdmin;
+  if (supabase) {
+    try {
+      const token = await getAccessToken();
+      if (token && supabaseUrl && supabaseAnonKey) {
+        return createClient(supabaseUrl, supabaseAnonKey, {
+          global: {
+            headers: {
+              Authorization: `Bearer ${token}`,
+            },
+          },
+          auth: { autoRefreshToken: false, persistSession: false },
+        });
+      }
+    } catch (err) {
+      console.warn('getAuthClient token header creation warning:', err);
+    }
+    return supabase;
+  }
+  return null;
+}
 
 const processedRequestUuidSet = new Set<string>();
 const broadcastChannel = typeof window !== 'undefined' ? new BroadcastChannel('suvarnaloan-sync') : null;
@@ -427,33 +447,36 @@ export const db = {
       return cached.data;
     }
 
-    if (isRealSupabase && supabase) {
+    if (isRealSupabase) {
       try {
-        const { data, error } = await supabase
-          .from('customers')
-          .select('*')
-          .eq('shop_id', shopId)
-          .is('deleted_at', null)
-          .order('created_at', { ascending: false });
-        if (!error && data) {
-          const refreshed = await Promise.all(
-            (data as Customer[]).map(async (c) => {
-              const photo_url = c.photo_url ? await getSignedDocumentUrl(c.shop_id, c.photo_url) : c.photo_url;
-              const aadhaar_url = c.aadhaar_url ? await getSignedDocumentUrl(c.shop_id, c.aadhaar_url) : c.aadhaar_url;
-              const aadhaar_back_url = c.aadhaar_back_url ? await getSignedDocumentUrl(c.shop_id, c.aadhaar_back_url) : c.aadhaar_back_url;
-              const pan_url = c.pan_url ? await getSignedDocumentUrl(c.shop_id, c.pan_url) : c.pan_url;
-              return {
-                ...c,
-                photo_url,
-                aadhaar_url,
-                aadhaar_back_url,
-                pan_url,
-              };
-            })
-          );
-          setStorageItem('customers', refreshed);
-          dbQueryCache.set(cacheKey, { data: refreshed, expiresAt: Date.now() + 3000 });
-          return refreshed;
+        const client = (await getAuthClient()) || supabase;
+        if (client) {
+          const { data, error } = await client
+            .from('customers')
+            .select('*')
+            .eq('shop_id', shopId)
+            .is('deleted_at', null)
+            .order('created_at', { ascending: false });
+          if (!error && data) {
+            const refreshed = await Promise.all(
+              (data as Customer[]).map(async (c) => {
+                const photo_url = c.photo_url ? await getSignedDocumentUrl(c.shop_id, c.photo_url) : c.photo_url;
+                const aadhaar_url = c.aadhaar_url ? await getSignedDocumentUrl(c.shop_id, c.aadhaar_url) : c.aadhaar_url;
+                const aadhaar_back_url = c.aadhaar_back_url ? await getSignedDocumentUrl(c.shop_id, c.aadhaar_back_url) : c.aadhaar_back_url;
+                const pan_url = c.pan_url ? await getSignedDocumentUrl(c.shop_id, c.pan_url) : c.pan_url;
+                return {
+                  ...c,
+                  photo_url,
+                  aadhaar_url,
+                  aadhaar_back_url,
+                  pan_url,
+                };
+              })
+            );
+            setStorageItem('customers', refreshed);
+            dbQueryCache.set(cacheKey, { data: refreshed, expiresAt: Date.now() + 3000 });
+            return refreshed;
+          }
         }
       } catch (err) {
         console.warn('getCustomers Supabase fetch warning:', err);
@@ -511,7 +534,7 @@ export const db = {
 
     if (isRealSupabase) {
       try {
-        const client = supabaseAdmin || supabase;
+        const client = await getAuthClient();
         if (client) {
           const { total_loans_count, active_loans_count, version, request_uuid, ...dbPayload } = newCust as any;
           let { data, error } = await client.from('customers').insert(dbPayload).select().single();
@@ -604,18 +627,21 @@ export const db = {
       return cached.data;
     }
 
-    if (isRealSupabase && supabase) {
+    if (isRealSupabase) {
       try {
-        const { data, error } = await supabase
-          .from('gold_items')
-          .select('*')
-          .eq('shop_id', shopId)
-          .is('deleted_at', null)
-          .order('created_at', { ascending: false });
-        if (!error && data) {
-          setStorageItem('gold_items', data as GoldItem[]);
-          dbQueryCache.set(cacheKey, { data: data as GoldItem[], expiresAt: Date.now() + 3000 });
-          return data as GoldItem[];
+        const client = (await getAuthClient()) || supabase;
+        if (client) {
+          const { data, error } = await client
+            .from('gold_items')
+            .select('*')
+            .eq('shop_id', shopId)
+            .is('deleted_at', null)
+            .order('created_at', { ascending: false });
+          if (!error && data) {
+            setStorageItem('gold_items', data as GoldItem[]);
+            dbQueryCache.set(cacheKey, { data: data as GoldItem[], expiresAt: Date.now() + 3000 });
+            return data as GoldItem[];
+          }
         }
       } catch (err) {
         console.warn('getGoldItems fetch warning:', err);
@@ -663,7 +689,7 @@ export const db = {
 
     if (isRealSupabase) {
       try {
-        const client = supabaseAdmin || supabase;
+        const client = await getAuthClient();
         if (client) {
           const { customer, loans, version, request_uuid, ...rawPayload } = newItem as any;
           const dbPayload = {
@@ -712,17 +738,19 @@ export const db = {
 
     let resultLoans: Loan[] = [];
 
-    if (isRealSupabase && supabase) {
+    if (isRealSupabase) {
       try {
-        const { data, error } = await supabase
-          .from('loans')
-          .select('*, customer:customers(*), gold_item:gold_items(*), payments(*)')
-          .eq('shop_id', shopId)
-          .is('deleted_at', null)
-          .order('created_at', { ascending: false });
-        if (!error && data) {
-          const otherShopLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id !== shopId);
-          setStorageItem('loans', [...otherShopLoans, ...(data as Loan[])]);
+        const client = (await getAuthClient()) || supabase;
+        if (client) {
+          const { data, error } = await client
+            .from('loans')
+            .select('*, customer:customers(*), gold_item:gold_items(*), payments(*)')
+            .eq('shop_id', shopId)
+            .is('deleted_at', null)
+            .order('created_at', { ascending: false });
+          if (!error && data) {
+            const otherShopLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id !== shopId);
+            setStorageItem('loans', [...otherShopLoans, ...(data as Loan[])]);
 
           resultLoans = (data as Loan[]).map((loan, idx) => {
             const cust = resolveLoanCustomer(loan, customersList, idx);
@@ -758,10 +786,11 @@ export const db = {
           dbQueryCache.set(cacheKey, { data: resultLoans, expiresAt: Date.now() + 3000 });
           return resultLoans;
         }
-      } catch (err) {
-        console.warn('getLoans Supabase warning:', err);
       }
+    } catch (err) {
+      console.warn('getLoans Supabase warning:', err);
     }
+  }
 
     const localLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id === shopId && !l.deleted_at);
     resultLoans = localLoans.map((loan, idx) => {
@@ -960,7 +989,7 @@ export const db = {
 
     if (isRealSupabase) {
       try {
-        const client = supabaseAdmin || supabase;
+        const client = await getAuthClient();
         if (client) {
           const { 
             customer, 
@@ -1038,7 +1067,7 @@ export const db = {
 
     if (isRealSupabase && supabase) {
       try {
-        const client = supabaseAdmin || supabase;
+        const client = await getAuthClient();
         if (client) {
           const { data: dbLoan } = await client
             .from('loans')
