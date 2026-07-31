@@ -125,7 +125,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     setLoading(false);
 
     const handleGlobalDataRefresh = async () => {
-      clearDbCache();
       if (session.shop) {
         const freshShop = await db.getShop(session.shop.id);
         if (freshShop) {
@@ -140,13 +139,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       }
     };
 
-    // 1. Supabase Realtime Subscription (Cross-Device Cloud Sync: Tablet ↔ PC ↔ Mobile)
-    let cleanupRealtime: (() => void) | null = null;
-    if (session.shop) {
-      cleanupRealtime = setupRealtimeSync(session.shop.id, handleGlobalDataRefresh);
+    // Listen to central RealtimeProvider custom event for multi-device cloud sync
+    const handleRealtimeEvent = () => {
+      handleGlobalDataRefresh();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('suvarnaloan-realtime-update', handleRealtimeEvent);
     }
 
-    // 2. BroadcastChannel (Same-Device Browser Tab Sync)
+    // BroadcastChannel (Same-Device Browser Tab Sync)
     let channel: BroadcastChannel | null = null;
     if (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') {
       channel = new BroadcastChannel('suvarnaloan-sync');
@@ -158,7 +160,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     }
 
     return () => {
-      if (cleanupRealtime) cleanupRealtime();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('suvarnaloan-realtime-update', handleRealtimeEvent);
+      }
       if (channel) channel.close();
     };
   }, [router]);

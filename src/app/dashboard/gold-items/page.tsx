@@ -19,7 +19,7 @@ export default function GoldItemsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
-  useEffect(() => {
+  const loadGoldItems = () => {
     const session = getSessionUser();
     const activeShopId = session?.user?.shop_id || session?.shop?.id || '';
     if (!activeShopId) {
@@ -30,15 +30,41 @@ export default function GoldItemsPage() {
       setItems(data);
       setLoading(false);
     });
+  };
+
+  useEffect(() => {
+    loadGoldItems();
+
+    const handleRealtimeUpdate = (e: any) => {
+      if (!e.detail?.table || e.detail.table === 'gold_items' || e.detail.table === 'loans') {
+        loadGoldItems();
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+      window.addEventListener('suvarnaloan-db-update', loadGoldItems);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+        window.removeEventListener('suvarnaloan-db-update', loadGoldItems);
+      }
+    };
   }, []);
 
-  const filtered = items.filter(
-    (g) =>
-      g.ornament_type.toLowerCase().includes(search.toLowerCase()) ||
-      g.purity.toLowerCase().includes(search.toLowerCase()) ||
-      (g.pocket_locker_number && g.pocket_locker_number.toLowerCase().includes(search.toLowerCase())) ||
-      (g.hallmark_number && g.hallmark_number.toLowerCase().includes(search.toLowerCase()))
-  );
+  const filtered = React.useMemo(() => {
+    const query = search.toLowerCase().trim();
+    if (!query) return items;
+    return items.filter(
+      (g) =>
+        (g.ornament_type && g.ornament_type.toLowerCase().includes(query)) ||
+        (g.purity && g.purity.toLowerCase().includes(query)) ||
+        (g.pocket_locker_number && g.pocket_locker_number.toLowerCase().includes(query)) ||
+        (g.hallmark_number && g.hallmark_number.toLowerCase().includes(query))
+    );
+  }, [items, search]);
 
   const handleExport = () => {
     const rows = filtered.map((g) => ({

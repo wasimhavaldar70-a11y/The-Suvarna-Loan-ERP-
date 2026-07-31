@@ -346,11 +346,15 @@ export default function CustomersPage() {
     }
   };
 
-  const filtered = customers.filter((c) =>
-    c.full_name.toLowerCase().includes(search.toLowerCase()) ||
-    c.mobile_number.includes(search) ||
-    (c.aadhaar_number && c.aadhaar_number.includes(search))
-  );
+  const filtered = React.useMemo(() => {
+    const query = search.toLowerCase().trim();
+    if (!query) return customers;
+    return customers.filter((c) =>
+      (c.full_name && c.full_name.toLowerCase().includes(query)) ||
+      (c.mobile_number && c.mobile_number.includes(query)) ||
+      (c.aadhaar_number && c.aadhaar_number.includes(query))
+    );
+  }, [customers, search]);
 
   return (
     <DashboardLayout>

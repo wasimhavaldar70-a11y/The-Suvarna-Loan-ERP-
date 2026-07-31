@@ -171,11 +171,14 @@ export function calculateLoanFinancials(
   let totalPrincipalPaid = 0;
 
   const safePayments = Array.isArray(payments) ? payments : [];
-  const sortedPayments = [...safePayments].sort((a, b) => {
-    const da = a?.payment_date ? new Date(a.payment_date).getTime() : 0;
-    const db = b?.payment_date ? new Date(b.payment_date).getTime() : 0;
-    return da - db;
-  });
+  let sortedPayments = safePayments;
+  if (safePayments.length > 1) {
+    sortedPayments = [...safePayments].sort((a, b) => {
+      const da = a?.payment_date ? (typeof a.payment_date === 'number' ? a.payment_date : Date.parse(a.payment_date) || 0) : 0;
+      const db = b?.payment_date ? (typeof b.payment_date === 'number' ? b.payment_date : Date.parse(b.payment_date) || 0) : 0;
+      return da - db;
+    });
+  }
 
   // Calculate gross accrued interest over elapsed duration
   const grossAccruedInterest = Math.round((safeLoanAmount * (safeRate / 100)) * diffMonths);

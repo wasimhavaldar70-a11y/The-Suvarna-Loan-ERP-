@@ -19,7 +19,7 @@ export default function PaymentsPage() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
-  useEffect(() => {
+  const loadPayments = () => {
     const session = getSessionUser();
     const activeShopId = session?.user?.shop_id || session?.shop?.id || '';
     if (!activeShopId) {
@@ -30,15 +30,41 @@ export default function PaymentsPage() {
       setPayments(data);
       setLoading(false);
     });
+  };
+
+  useEffect(() => {
+    loadPayments();
+
+    const handleRealtimeUpdate = (e: any) => {
+      if (!e.detail?.table || e.detail.table === 'payments' || e.detail.table === 'loans') {
+        loadPayments();
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+      window.addEventListener('suvarnaloan-db-update', loadPayments);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+        window.removeEventListener('suvarnaloan-db-update', loadPayments);
+      }
+    };
   }, []);
 
-  const filtered = payments.filter(
-    (p) =>
-      p.receipt_number?.toLowerCase().includes(search.toLowerCase()) ||
-      p.payment_type.toLowerCase().includes(search.toLowerCase()) ||
-      p.payment_method.toLowerCase().includes(search.toLowerCase()) ||
-      (p.notes && p.notes.toLowerCase().includes(search.toLowerCase()))
-  );
+  const filtered = React.useMemo(() => {
+    const query = search.toLowerCase().trim();
+    if (!query) return payments;
+    return payments.filter(
+      (p) =>
+        (p.receipt_number && p.receipt_number.toLowerCase().includes(query)) ||
+        (p.payment_type && p.payment_type.toLowerCase().includes(query)) ||
+        (p.payment_method && p.payment_method.toLowerCase().includes(query)) ||
+        (p.notes && p.notes.toLowerCase().includes(query))
+    );
+  }, [payments, search]);
 
   const handleExport = () => {
     const rows = filtered.map((p) => ({

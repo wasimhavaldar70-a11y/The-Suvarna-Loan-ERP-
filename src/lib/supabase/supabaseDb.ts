@@ -49,6 +49,7 @@ const processedRequestUuidSet = new Set<string>();
 const broadcastChannel = (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('suvarnaloan-sync') : null;
 
 const dbQueryCache = new Map<string, { data: any; expiresAt: number }>();
+const DEFAULT_CACHE_TTL = 30000; // 30 Seconds safe cache TTL
 
 export const clearDbCache = (table?: string) => {
   if (!table) {
@@ -58,6 +59,21 @@ export const clearDbCache = (table?: string) => {
   for (const key of dbQueryCache.keys()) {
     if (key.includes(table)) {
       dbQueryCache.delete(key);
+    }
+  }
+  // Invalidate dependent cached tables
+  if (table === 'loans' || table === 'payments' || table === 'gold_items' || table === 'customers') {
+    for (const key of dbQueryCache.keys()) {
+      if (key.includes('dashboard_metrics')) {
+        dbQueryCache.delete(key);
+      }
+    }
+  }
+  if (table === 'customers' || table === 'gold_items' || table === 'payments') {
+    for (const key of dbQueryCache.keys()) {
+      if (key.includes('loans')) {
+        dbQueryCache.delete(key);
+      }
     }
   }
 };
@@ -464,7 +480,7 @@ export const db = {
                 };
               })
             );
-            dbQueryCache.set(cacheKey, { data: refreshed, expiresAt: Date.now() + 3000 });
+            dbQueryCache.set(cacheKey, { data: refreshed, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
             return refreshed;
           }
         }
@@ -474,7 +490,7 @@ export const db = {
     }
 
     const localCustomers = getStorageItem<Customer[]>('customers', DEFAULT_CUSTOMERS).filter(c => c.shop_id === shopId && !c.deleted_at);
-    dbQueryCache.set(cacheKey, { data: localCustomers, expiresAt: Date.now() + 3000 });
+    dbQueryCache.set(cacheKey, { data: localCustomers, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
     return localCustomers;
   },
 
@@ -641,7 +657,7 @@ export const db = {
             .is('deleted_at', null)
             .order('created_at', { ascending: false });
           if (!error && data) {
-            dbQueryCache.set(cacheKey, { data: data as GoldItem[], expiresAt: Date.now() + 3000 });
+            dbQueryCache.set(cacheKey, { data: data as GoldItem[], expiresAt: Date.now() + DEFAULT_CACHE_TTL });
             return data as GoldItem[];
           }
         }
@@ -651,7 +667,7 @@ export const db = {
     }
 
     const localItems = getStorageItem<GoldItem[]>('gold_items', DEFAULT_GOLD_ITEMS).filter(g => g.shop_id === shopId && !g.deleted_at);
-    dbQueryCache.set(cacheKey, { data: localItems, expiresAt: Date.now() + 3000 });
+    dbQueryCache.set(cacheKey, { data: localItems, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
     return localItems;
   },
 
@@ -783,7 +799,7 @@ export const db = {
               };
             });
 
-            dbQueryCache.set(cacheKey, { data: resultLoans, expiresAt: Date.now() + 3000 });
+            dbQueryCache.set(cacheKey, { data: resultLoans, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
             return resultLoans;
           }
         }
@@ -798,15 +814,30 @@ export const db = {
       this.getPayments(shopId),
     ]);
 
+    const goldMap = new Map<string, GoldItem>();
+    goldItemsList.forEach(g => {
+      if (g && g.id) goldMap.set(String(g.id).trim(), g);
+    });
+
+    const pmtGroupMap = new Map<string, Payment[]>();
+    paymentsList.forEach(p => {
+      if (p && p.loan_id) {
+        const lid = String(p.loan_id).trim();
+        const existing = pmtGroupMap.get(lid) || [];
+        existing.push(p);
+        pmtGroupMap.set(lid, existing);
+      }
+    });
+
     const localLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id === shopId && !l.deleted_at);
     resultLoans = localLoans.map((loan, idx) => {
       const cust = resolveLoanCustomer(loan, customersList, idx);
 
-      const rawGold = goldItemsList.find(g => g.id === loan.gold_item_id || (g.id && loan.gold_item_id && String(g.id).trim() === String(loan.gold_item_id).trim())) || loan.gold_item;
+      const rawGold = (loan.gold_item_id ? goldMap.get(String(loan.gold_item_id).trim()) : null) || loan.gold_item;
       const gold = Array.isArray(rawGold) ? rawGold[0] : rawGold;
 
-      const pmts = paymentsList.filter(p => p.loan_id === loan.id || p.loan_id === loan.loan_number);
-      
+      const pmts = pmtGroupMap.get(String(loan.id).trim()) || (loan.loan_number ? pmtGroupMap.get(String(loan.loan_number).trim()) : null) || [];
+
       const fin = calculateLoanFinancials(
         loan.loan_amount,
         loan.interest_rate,
@@ -832,7 +863,7 @@ export const db = {
       };
     });
 
-    dbQueryCache.set(cacheKey, { data: resultLoans, expiresAt: Date.now() + 3000 });
+    dbQueryCache.set(cacheKey, { data: resultLoans, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
     return resultLoans;
   },
 
@@ -1167,7 +1198,7 @@ export const db = {
     });
 
     setStorageItem('payments', combined);
-    dbQueryCache.set(cacheKey, { data: combined, expiresAt: Date.now() + 3000 });
+    dbQueryCache.set(cacheKey, { data: combined, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
     return combined;
   },
 
@@ -1264,6 +1295,14 @@ export const db = {
 
   // ── Dashboard Metrics API ──────────────────────────────────
   async getDashboardMetrics(shopId: string): Promise<DashboardMetrics> {
+    if (!shopId) return {} as DashboardMetrics;
+
+    const cacheKey = `dashboard_metrics_${shopId}`;
+    const cached = dbQueryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
     const [loans, goldItems, payments, shop] = await Promise.all([
       this.getLoans(shopId),
       this.getGoldItems(shopId),
@@ -1305,7 +1344,7 @@ export const db = {
     const silver1kgRate = shop?.silver_rate_1kg || 95000;
     const silverGramRate = shop?.silver_rate_per_gram || Number((silver1kgRate / 1000).toFixed(2));
 
-    return {
+    const metricsResult: DashboardMetrics = {
       totalActiveLoansCount: activeLoans.length,
       totalPortfolioAum,
       totalPledgedGoldWeightGrams: Number(totalPledgedGoldWeightGrams.toFixed(2)),
@@ -1332,6 +1371,9 @@ export const db = {
         { name: '24K (99.9%)', value: 1, weightGrams: 25.0 },
       ],
     };
+
+    dbQueryCache.set(cacheKey, { data: metricsResult, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
+    return metricsResult;
   },
 };
 
@@ -1346,8 +1388,8 @@ export function setupRealtimeSync(shopId: string, onUpdate: () => void): () => v
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
 
     const triggerDebouncedRefresh = (targetTable?: string) => {
-      // ⚡ Wipes ALL DB query caches (loans, customers, gold_items, payments, metrics) so every query refetches fresh cloud data from Supabase PostgreSQL!
-      clearDbCache();
+      // ⚡ Wipes target table & dependent query caches so affected model refetches fresh data from Supabase
+      clearDbCache(targetTable);
 
       if (refreshTimer) clearTimeout(refreshTimer);
       refreshTimer = setTimeout(() => {

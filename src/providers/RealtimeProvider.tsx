@@ -36,8 +36,8 @@ export function RealtimeProvider({ children, shopId: propShopId }: RealtimeProvi
     const triggerDebouncedRefresh = (targetTable: string, eventType: string, payload: any) => {
       console.log(`[RealtimeProvider] 🔥 ${eventType} event on '${targetTable}':`, payload);
       
-      // ⚡ Wipe in-memory DB query cache so every component refetches fresh cloud data from Supabase
-      clearDbCache();
+      // ⚡ Wipe targeted in-memory DB query cache so affected model refetches fresh data
+      clearDbCache(targetTable);
 
       if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
       refreshTimerRef.current = setTimeout(() => {
@@ -58,7 +58,7 @@ export function RealtimeProvider({ children, shopId: propShopId }: RealtimeProvi
 
     const events = ['INSERT', 'UPDATE', 'DELETE'] as const;
 
-    const channelName = `central-realtime-${activeShopId}-${Math.floor(Math.random() * 10000)}`;
+    const channelName = `central-realtime-${activeShopId}`;
     let channel = supabase.channel(channelName);
 
     tables.forEach((t) => {

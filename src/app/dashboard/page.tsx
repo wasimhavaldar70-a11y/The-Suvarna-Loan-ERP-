@@ -117,26 +117,22 @@ export default function DashboardPage() {
   };
 
   useEffect(() => {
-    loadData(true);
+    loadData(false);
 
-    const session = getSessionUser();
-    const activeShopId = session?.user?.shop_id || session?.shop?.id || '';
-
-    const handleFocus = () => {
-      loadData(true);
+    const handleRealtimeUpdate = () => {
+      loadData(false);
     };
 
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleFocus);
-
-    const cleanupRealtime = setupRealtimeSync(activeShopId, () => {
-      loadData(true);
-    });
+    if (typeof window !== 'undefined') {
+      window.addEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+      window.addEventListener('suvarnaloan-db-update', handleRealtimeUpdate);
+    }
 
     return () => {
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleFocus);
-      cleanupRealtime();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+        window.removeEventListener('suvarnaloan-db-update', handleRealtimeUpdate);
+      }
     };
   }, []);
 

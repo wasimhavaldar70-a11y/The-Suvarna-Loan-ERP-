@@ -40,26 +40,24 @@ export default function LoansPage() {
   };
 
   useEffect(() => {
-    loadLoans(true);
+    loadLoans(false);
 
-    const session = getSessionUser();
-    const shopId = session?.user?.shop_id || session?.shop?.id || '';
-
-    const handleFocus = () => {
-      loadLoans(true);
+    const handleRealtimeUpdate = (e: any) => {
+      if (!e.detail?.table || e.detail.table === 'loans' || e.detail.table === 'payments' || e.detail.table === 'customers') {
+        loadLoans(false);
+      }
     };
 
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleFocus);
-
-    const cleanupRealtime = setupRealtimeSync(shopId, () => {
-      loadLoans(true);
-    });
+    if (typeof window !== 'undefined') {
+      window.addEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+      window.addEventListener('suvarnaloan-db-update', () => loadLoans(false));
+    }
 
     return () => {
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleFocus);
-      cleanupRealtime();
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+        window.removeEventListener('suvarnaloan-db-update', () => loadLoans(false));
+      }
     };
   }, []);
 
