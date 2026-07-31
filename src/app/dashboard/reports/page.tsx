@@ -38,6 +38,18 @@ import { toast } from 'sonner';
 
 export type ReportPeriod = '1_DAY' | '1_MONTH' | '3_MONTHS' | '6_MONTHS' | '1_YEAR' | 'ALL_TIME';
 
+interface AuditLedgerEntry {
+  id: string;
+  date: string;
+  type: 'DISBURSAL' | 'INTEREST_PAYMENT' | 'PRINCIPAL_REPAYMENT' | 'LOAN_SETTLEMENT';
+  loan_number: string;
+  customer_name: string;
+  amount: number;
+  mode: string;
+  ornament: string;
+  status: string;
+}
+
 export default function ReportsPage() {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [loans, setLoans] = useState<Loan[]>([]);
@@ -104,110 +116,126 @@ export default function ReportsPage() {
     }
   };
 
-  const periodStartDate = getPeriodStartDate(selectedPeriod);
+  const {
+    periodLoans,
+    closedPeriodLoans,
+    allPeriodPayments,
+    periodDisbursedPrincipal,
+    periodInterestCollected,
+    periodPrincipalRecovered,
+    totalPeriodCashReceived,
+    periodPledgedGoldWeight,
+    periodReleasedGoldWeight,
+    ledgerEntries,
+  } = React.useMemo(() => {
+    const periodStartDate = getPeriodStartDate(selectedPeriod);
 
-  // Filtered loans disbursed in period
-  const periodLoans = loans.filter((loan) => {
-    if (!periodStartDate) return true;
-    const lDate = new Date(loan.loan_date);
-    return lDate >= periodStartDate;
-  });
+    // Filtered loans disbursed in period
+    const periodLoans = loans.filter((loan) => {
+      if (!periodStartDate) return true;
+      const lDate = new Date(loan.loan_date);
+      return lDate >= periodStartDate;
+    });
 
-  // Extract all payments occurred in period
-  const allPeriodPayments: { payment: Payment; loan: Loan }[] = [];
-  loans.forEach((loan) => {
-    if (loan.payments && loan.payments.length > 0) {
-      loan.payments.forEach((p) => {
-        if (!periodStartDate) {
-          allPeriodPayments.push({ payment: p, loan });
-        } else {
-          const pDate = new Date(p.payment_date);
-          if (pDate >= periodStartDate) {
+    // Extract all payments occurred in period
+    const allPeriodPayments: { payment: Payment; loan: Loan }[] = [];
+    loans.forEach((loan) => {
+      if (loan.payments && loan.payments.length > 0) {
+        loan.payments.forEach((p) => {
+          if (!periodStartDate) {
             allPeriodPayments.push({ payment: p, loan });
+          } else {
+            const pDate = new Date(p.payment_date);
+            if (pDate >= periodStartDate) {
+              allPeriodPayments.push({ payment: p, loan });
+            }
           }
-        }
+        });
+      }
+    });
+
+    // Calculate period financial totals
+    const periodDisbursedPrincipal = periodLoans.reduce((sum, l) => sum + l.loan_amount, 0);
+    const periodInterestCollected = allPeriodPayments
+      .filter((item) => item.payment.payment_type === 'Interest Payment' || item.payment.payment_type === 'Partial Payment')
+      .reduce((sum, item) => sum + item.payment.amount, 0);
+
+    const periodPrincipalRecovered = allPeriodPayments
+      .filter((item) => item.payment.payment_type === 'Full Settlement' || item.payment.payment_type === 'Principal Part-Payment')
+      .reduce((sum, item) => sum + item.payment.amount, 0);
+
+    const totalPeriodCashReceived = periodInterestCollected + periodPrincipalRecovered;
+
+    const periodPledgedGoldWeight = periodLoans.reduce((sum, l) => sum + (l.gold_item?.net_weight || 0), 0);
+    const closedPeriodLoans = periodLoans.filter((l) => l.status === 'Closed');
+    const periodReleasedGoldWeight = closedPeriodLoans.reduce((sum, l) => sum + (l.gold_item?.net_weight || 0), 0);
+
+    const ledgerEntries: AuditLedgerEntry[] = [];
+
+    // Add disbursals
+    periodLoans.forEach((l) => {
+      ledgerEntries.push({
+        id: `disb-${l.id}`,
+        date: l.loan_date,
+        type: 'DISBURSAL',
+        loan_number: l.loan_number,
+        customer_name: l.customer?.full_name || 'Borrower Customer',
+        amount: l.loan_amount,
+        mode: 'Cash / Transfer',
+        ornament: `${l.gold_item?.ornament_type || 'Gold Item'} (${formatWeight(l.gold_item?.net_weight || 0)})`,
+        status: l.status,
       });
-    }
-  });
-
-  // Calculate period financial totals
-  const periodDisbursedPrincipal = periodLoans.reduce((sum, l) => sum + l.loan_amount, 0);
-  const periodInterestCollected = allPeriodPayments
-    .filter((item) => item.payment.payment_type === 'Interest Payment' || item.payment.payment_type === 'Partial Payment')
-    .reduce((sum, item) => sum + item.payment.amount, 0);
-
-  const periodPrincipalRecovered = allPeriodPayments
-    .filter((item) => item.payment.payment_type === 'Full Settlement' || item.payment.payment_type === 'Principal Part-Payment')
-    .reduce((sum, item) => sum + item.payment.amount, 0);
-
-  const totalPeriodCashReceived = periodInterestCollected + periodPrincipalRecovered;
-
-  const periodPledgedGoldWeight = periodLoans.reduce((sum, l) => sum + (l.gold_item?.net_weight || 0), 0);
-  const closedPeriodLoans = periodLoans.filter((l) => l.status === 'Closed');
-  const periodReleasedGoldWeight = closedPeriodLoans.reduce((sum, l) => sum + (l.gold_item?.net_weight || 0), 0);
-
-  // Consolidated ledger rows for search and table display
-  interface AuditLedgerEntry {
-    id: string;
-    date: string;
-    type: 'DISBURSAL' | 'INTEREST_PAYMENT' | 'PRINCIPAL_REPAYMENT' | 'LOAN_SETTLEMENT';
-    loan_number: string;
-    customer_name: string;
-    amount: number;
-    mode: string;
-    ornament: string;
-    status: string;
-  }
-
-  const ledgerEntries: AuditLedgerEntry[] = [];
-
-  // Add disbursals
-  periodLoans.forEach((l) => {
-    ledgerEntries.push({
-      id: `disb-${l.id}`,
-      date: l.loan_date,
-      type: 'DISBURSAL',
-      loan_number: l.loan_number,
-      customer_name: l.customer?.full_name || 'Borrower Customer',
-      amount: l.loan_amount,
-      mode: 'Cash / Transfer',
-      ornament: `${l.gold_item?.ornament_type || 'Gold Item'} (${formatWeight(l.gold_item?.net_weight || 0)})`,
-      status: l.status,
     });
-  });
 
-  // Add payments
-  allPeriodPayments.forEach(({ payment, loan }) => {
-    let pType: AuditLedgerEntry['type'] = 'INTEREST_PAYMENT';
-    if (payment.payment_type === 'Full Settlement') pType = 'LOAN_SETTLEMENT';
-    else if (payment.payment_type === 'Principal Part-Payment') pType = 'PRINCIPAL_REPAYMENT';
+    // Add payments
+    allPeriodPayments.forEach(({ payment, loan }) => {
+      let pType: AuditLedgerEntry['type'] = 'INTEREST_PAYMENT';
+      if (payment.payment_type === 'Full Settlement') pType = 'LOAN_SETTLEMENT';
+      else if (payment.payment_type === 'Principal Part-Payment') pType = 'PRINCIPAL_REPAYMENT';
 
-    ledgerEntries.push({
-      id: payment.id,
-      date: payment.payment_date,
-      type: pType,
-      loan_number: loan.loan_number,
-      customer_name: loan.customer?.full_name || 'Borrower Customer',
-      amount: payment.amount,
-      mode: payment.payment_method || 'Cash / UPI',
-      ornament: `${loan.gold_item?.ornament_type || 'Gold Item'} (${formatWeight(loan.gold_item?.net_weight || 0)})`,
-      status: payment.payment_type,
+      ledgerEntries.push({
+        id: payment.id,
+        date: payment.payment_date,
+        type: pType,
+        loan_number: loan.loan_number,
+        customer_name: loan.customer?.full_name || 'Borrower Customer',
+        amount: payment.amount,
+        mode: payment.payment_method || 'Cash / UPI',
+        ornament: `${loan.gold_item?.ornament_type || 'Gold Item'} (${formatWeight(loan.gold_item?.net_weight || 0)})`,
+        status: payment.payment_type,
+      });
     });
-  });
 
-  // Sort ledger entries newest first
-  ledgerEntries.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    // Sort ledger entries newest first
+    ledgerEntries.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0));
+
+    return {
+      periodLoans,
+      closedPeriodLoans,
+      allPeriodPayments,
+      periodDisbursedPrincipal,
+      periodInterestCollected,
+      periodPrincipalRecovered,
+      totalPeriodCashReceived,
+      periodPledgedGoldWeight,
+      periodReleasedGoldWeight,
+      ledgerEntries,
+    };
+  }, [loans, selectedPeriod]);
 
   // Filter ledger by search query
-  const filteredLedger = ledgerEntries.filter((e) => {
-    const q = searchQuery.toLowerCase();
-    return (
-      e.customer_name.toLowerCase().includes(q) ||
-      e.loan_number.toLowerCase().includes(q) ||
-      e.type.toLowerCase().includes(q) ||
-      e.mode.toLowerCase().includes(q)
-    );
-  });
+  const filteredLedger = React.useMemo(() => {
+    const q = searchQuery.toLowerCase().trim();
+    if (!q) return ledgerEntries;
+    return ledgerEntries.filter((e) => {
+      return (
+        (e.customer_name && e.customer_name.toLowerCase().includes(q)) ||
+        (e.loan_number && e.loan_number.toLowerCase().includes(q)) ||
+        (e.type && e.type.toLowerCase().includes(q)) ||
+        (e.mode && e.mode.toLowerCase().includes(q))
+      );
+    });
+  }, [ledgerEntries, searchQuery]);
 
   const getPeriodLabelText = (p: ReportPeriod) => {
     switch (p) {
