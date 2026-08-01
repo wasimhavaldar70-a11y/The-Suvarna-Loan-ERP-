@@ -657,8 +657,19 @@ export const db = {
             .is('deleted_at', null)
             .order('created_at', { ascending: false });
           if (!error && data) {
-            dbQueryCache.set(cacheKey, { data: data as GoldItem[], expiresAt: Date.now() + DEFAULT_CACHE_TTL });
-            return data as GoldItem[];
+            const refreshed = await Promise.all(
+              (data as GoldItem[]).map(async (g) => {
+                const rawUrl = g.photo_url || (g as any).front_image_url || (g as any).back_image_url || '';
+                const photo_url = rawUrl ? await getSignedDocumentUrl(g.shop_id || shopId, rawUrl) : '';
+                return {
+                  ...g,
+                  photo_url,
+                  front_image_url: photo_url,
+                };
+              })
+            );
+            dbQueryCache.set(cacheKey, { data: refreshed, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
+            return refreshed;
           }
         }
       } catch (err) {
@@ -764,40 +775,51 @@ export const db = {
             console.log("Raw Supabase loans count:", data.length);
             console.log("Loan numbers:", data.map((l: any) => l.loan_number));
 
-            resultLoans = (data as Loan[]).map((loan) => {
-              const cust = Array.isArray(loan.customer) ? loan.customer[0] : (loan.customer || {
-                id: loan.customer_id,
-                full_name: (loan as any).customer_name || 'Customer Record Unlinked',
-                mobile_number: (loan as any).customer_mobile || 'N/A',
-              });
+            resultLoans = await Promise.all(
+              (data as Loan[]).map(async (loan) => {
+                const cust = Array.isArray(loan.customer) ? loan.customer[0] : (loan.customer || {
+                  id: loan.customer_id,
+                  full_name: (loan as any).customer_name || 'Customer Record Unlinked',
+                  mobile_number: (loan as any).customer_mobile || 'N/A',
+                });
 
-              const rawGold = Array.isArray(loan.gold_item) ? loan.gold_item[0] : (loan.gold_item || {});
+                let rawGold = Array.isArray(loan.gold_item) ? loan.gold_item[0] : (loan.gold_item || {});
+                if (rawGold && (rawGold.photo_url || (rawGold as any).front_image_url || (rawGold as any).back_image_url)) {
+                  const rawUrl = rawGold.photo_url || (rawGold as any).front_image_url || (rawGold as any).back_image_url || '';
+                  const photo_url = rawUrl ? await getSignedDocumentUrl(loan.shop_id, rawUrl) : '';
+                  rawGold = {
+                    ...rawGold,
+                    photo_url,
+                    front_image_url: photo_url,
+                  };
+                }
 
-              const pmts = (loan.payments || []).map((p: any) => ({ ...p, amount: Number(p.amount) || 0 }));
-              const fin = calculateLoanFinancials(
-                loan.loan_amount,
-                loan.interest_rate,
-                loan.loan_date,
-                loan.due_date,
-                pmts,
-                loan.repayment_model || 'Bullet Repayment',
-                loan.tenure_months || 12
-              );
+                const pmts = (loan.payments || []).map((p: any) => ({ ...p, amount: Number(p.amount) || 0 }));
+                const fin = calculateLoanFinancials(
+                  loan.loan_amount,
+                  loan.interest_rate,
+                  loan.loan_date,
+                  loan.due_date,
+                  pmts,
+                  loan.repayment_model || 'Bullet Repayment',
+                  loan.tenure_months || 12
+                );
 
-              const effectiveStatus = (loan.status !== 'Closed' && loan.status !== 'Auctioned' && fin.isOverdue)
-                ? 'Overdue'
-                : (loan.status || 'Active');
+                const effectiveStatus = (loan.status !== 'Closed' && loan.status !== 'Auctioned' && fin.isOverdue)
+                  ? 'Overdue'
+                  : (loan.status || 'Active');
 
-              return {
-                ...loan,
-                status: effectiveStatus,
-                customer: cust,
-                gold_item: rawGold,
-                payments: pmts,
-                accrued_interest: fin.netAccruedInterest,
-                total_balance_due: fin.totalBalanceDue,
-              };
-            });
+                return {
+                  ...loan,
+                  status: effectiveStatus,
+                  customer: cust,
+                  gold_item: rawGold,
+                  payments: pmts,
+                  accrued_interest: fin.netAccruedInterest,
+                  total_balance_due: fin.totalBalanceDue,
+                };
+              })
+            );
 
             dbQueryCache.set(cacheKey, { data: resultLoans, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
             return resultLoans;
@@ -891,6 +913,16 @@ export const db = {
             const goldItems = await this.getGoldItems(activeShopId);
             const rawGold = goldItems.find(g => g.id === l.gold_item_id || String(g.id).trim() === String(l.gold_item_id).trim());
             gold = rawGold || gold;
+          }
+
+          if (gold) {
+            const rawUrl = gold.photo_url || gold.front_image_url || gold.back_image_url || '';
+            const photo_url = rawUrl ? await getSignedDocumentUrl(activeShopId, rawUrl) : '';
+            gold = {
+              ...gold,
+              photo_url,
+              front_image_url: photo_url,
+            };
           }
 
           const allPayments = await this.getPayments(activeShopId);
