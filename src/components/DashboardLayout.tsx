@@ -57,6 +57,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   // Rate inputs for live rate edit
   const [rate24k, setRate24k] = useState(7650);
   const [rate22k, setRate22k] = useState(7010);
+  const [rate20k, setRate20k] = useState(6375);
   const [rate18k, setRate18k] = useState(5738);
 
   const touchStartX = useRef<number | null>(null);
@@ -97,16 +98,20 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
     if (session.shop) {
       const initialShop = session.shop;
-      setRate24k(initialShop.gold_rate_24k || 7650);
+      const r24 = initialShop.gold_rate_24k || 7650;
+      setRate24k(r24);
       setRate22k(initialShop.gold_rate_22k || 7010);
+      setRate20k(initialShop.gold_rate_20k || Math.round(r24 * (20 / 24)));
       setRate18k(initialShop.gold_rate_18k || 5738);
 
       // Query latest database values asynchronously
       db.getShop(initialShop.id).then((freshShop) => {
         if (freshShop) {
           setCurrentShop(freshShop);
-          setRate24k(freshShop.gold_rate_24k || 7650);
+          const fresh24 = freshShop.gold_rate_24k || 7650;
+          setRate24k(fresh24);
           setRate22k(freshShop.gold_rate_22k || 7010);
+          setRate20k(freshShop.gold_rate_20k || Math.round(fresh24 * (20 / 24)));
           setRate18k(freshShop.gold_rate_18k || 5738);
 
           setSessionUser({
@@ -196,12 +201,13 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const handleUpdateRates = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentShop) return;
-    const ok = await db.updateShopGoldRates(currentShop.id, rate24k, rate22k, rate18k);
+    const ok = await db.updateShopGoldRates(currentShop.id, rate24k, rate22k, rate20k, rate18k);
     if (ok) {
       const updatedShop: Shop = {
         ...currentShop,
         gold_rate_24k: rate24k,
         gold_rate_22k: rate22k,
+        gold_rate_20k: rate20k,
         gold_rate_18k: rate18k,
       };
       setCurrentShop(updatedShop);
@@ -376,38 +382,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </button>
         </div>
 
-        {/* User Profile Card (Moved UP directly near Header & Rates for easy access) */}
-        <div className="mx-3 mt-3 mb-1 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between shrink-0">
-          {!isCollapsed ? (
-            <>
-              <div className="flex items-center gap-2.5 overflow-hidden">
-                <div className="w-8 h-8 rounded-full bg-slate-800 border border-amber-500/40 flex items-center justify-center font-bold text-amber-400 text-xs shrink-0 shadow-xs">
-                  {currentUser.name[0]}
-                </div>
-                <div className="flex flex-col truncate">
-                  <span className="text-xs font-bold text-slate-100 truncate">{currentUser.name}</span>
-                  <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">{currentUser.role}</span>
-                </div>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors shrink-0"
-                title="Sign out"
-              >
-                <LogOut className="w-4 h-4" />
-              </button>
-            </>
-          ) : (
-            <button
-              onClick={handleLogout}
-              className="w-full flex justify-center p-1 text-slate-400 hover:text-rose-400 rounded-lg"
-              title="Sign out"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-
         {/* Live Gold Rate Banner Badge */}
         {!isCollapsed && (
           <div className="mx-3 my-2 p-3 rounded-xl bg-slate-900 border border-amber-500/30 flex items-center justify-between shrink-0">
@@ -457,6 +431,38 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
           ))}
         </nav>
+
+        {/* User Profile Card (Positioned Below Navigation / Settings & Rates) */}
+        <div className="mx-3 my-3 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between shrink-0">
+          {!isCollapsed ? (
+            <>
+              <div className="flex items-center gap-2.5 overflow-hidden">
+                <div className="w-8 h-8 rounded-full bg-slate-800 border border-amber-500/40 flex items-center justify-center font-bold text-amber-400 text-xs shrink-0 shadow-xs">
+                  {currentUser.name[0]}
+                </div>
+                <div className="flex flex-col truncate">
+                  <span className="text-xs font-bold text-slate-100 truncate">{currentUser.name}</span>
+                  <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">{currentUser.role}</span>
+                </div>
+              </div>
+              <button
+                onClick={handleLogout}
+                className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors shrink-0"
+                title="Sign out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={handleLogout}
+              className="w-full flex justify-center p-1 text-slate-400 hover:text-rose-400 rounded-lg"
+              title="Sign out"
+            >
+              <LogOut className="w-4 h-4" />
+            </button>
+          )}
+        </div>
       </aside>
 
       {/* Mobile Sidebar Overlay */}
@@ -487,26 +493,6 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           </button>
         </div>
 
-        {/* Mobile User Profile Card */}
-        <div className="mx-4 mt-3 mb-1 p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-slate-800 border border-amber-500/40 flex items-center justify-center font-bold text-amber-400 text-xs shrink-0">
-              {currentUser.name[0]}
-            </div>
-            <div className="flex flex-col">
-              <span className="text-xs font-bold text-white">{currentUser.name}</span>
-              <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">{currentUser.role}</span>
-            </div>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-            title="Sign out"
-          >
-            <LogOut className="w-4 h-4" />
-          </button>
-        </div>
-
         <nav className="flex-1 p-4 space-y-4 overflow-y-auto">
           {navSections.map((sec) => (
             <div key={sec.group} className="space-y-1">
@@ -533,6 +519,26 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             </div>
           ))}
         </nav>
+
+        {/* Mobile User Profile Card (Below Navigation / Settings & Rates) */}
+        <div className="mx-4 my-3 p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-full bg-slate-800 border border-amber-500/40 flex items-center justify-center font-bold text-amber-400 text-xs shrink-0">
+              {currentUser.name[0]}
+            </div>
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-white">{currentUser.name}</span>
+              <span className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">{currentUser.role}</span>
+            </div>
+          </div>
+          <button
+            onClick={handleLogout}
+            className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
+            title="Sign out"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
+        </div>
       </aside>
 
       {/* Main Content Area */}
@@ -621,6 +627,17 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                   type="number"
                   value={rate22k}
                   onChange={(e) => setRate22k(Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">20K Gold Rate (per gram in ₹)</label>
+                <input
+                  type="number"
+                  value={rate20k}
+                  onChange={(e) => setRate20k(Number(e.target.value))}
                   className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
                   required
                 />

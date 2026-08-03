@@ -183,6 +183,7 @@ export default function ValuationPage() {
                   <>
                     <option value="24K (99.9%)">24K Fine Gold (99.9%)</option>
                     <option value="22K (91.6%)">22K Standard Hallmark (91.6%)</option>
+                    <option value="20K (83.3%)">20K Gold (83.3%)</option>
                     <option value="18K (75.0%)">18K Jewellery Gold (75.0%)</option>
                     <option value="14K (58.5%)">14K Ornament Gold (58.5%)</option>
                   </>

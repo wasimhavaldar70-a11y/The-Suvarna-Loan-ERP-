@@ -123,6 +123,8 @@ export function CreateGoldLoanModal({
 
   // Loan Terms & Repayment Model
   const [loanAmount, setLoanAmount] = useState<number>(125000);
+  const [isCustomLoanAmount, setIsCustomLoanAmount] = useState<boolean>(false);
+  const [disbursalStrategy, setDisbursalStrategy] = useState<'LTV_75' | 'LTV_80' | 'FULL_100' | 'CUSTOM_OVER_VALUATION'>('LTV_75');
   const [allow80Ltv, setAllow80Ltv] = useState<boolean>(false);
   const [interestRate, setInterestRate] = useState<number>(1.5);
   const [tenureMonths, setTenureMonths] = useState<number>(12);
@@ -197,14 +199,16 @@ export function CreateGoldLoanModal({
   const totalMaxLoanAmount80 = Math.round(totalEstimatedMarketValue * 0.80);
   const currentPermittedMaxCap = allow80Ltv ? totalMaxLoanAmount80 : totalMaxLoanAmount;
 
-  // Auto-suggest loan amount based on active LTV cap when items or checkbox change
+  // Auto-suggest loan amount based on active LTV cap when items or checkbox change (if not manually customized)
   useEffect(() => {
-    if (allow80Ltv && totalMaxLoanAmount80 > 0) {
-      setLoanAmount(totalMaxLoanAmount80);
-    } else if (!allow80Ltv && totalMaxLoanAmount > 0) {
-      setLoanAmount(totalMaxLoanAmount);
+    if (!isCustomLoanAmount) {
+      if (allow80Ltv && totalMaxLoanAmount80 > 0) {
+        setLoanAmount(totalMaxLoanAmount80);
+      } else if (!allow80Ltv && totalMaxLoanAmount > 0) {
+        setLoanAmount(totalMaxLoanAmount);
+      }
     }
-  }, [totalMaxLoanAmount, totalMaxLoanAmount80, allow80Ltv]);
+  }, [totalMaxLoanAmount, totalMaxLoanAmount80, allow80Ltv, isCustomLoanAmount]);
 
   // Handlers for Multi-Ornament Item List
   const handleAddOrnament = () => {
@@ -450,7 +454,8 @@ export function CreateGoldLoanModal({
       return;
     }
 
-    if (loanAmount > currentPermittedMaxCap) {
+    // Enforce LTV cap check only when adhering strictly to standard 75%/80% LTV modes without custom override
+    if (!isCustomLoanAmount && disbursalStrategy !== 'CUSTOM_OVER_VALUATION' && loanAmount > currentPermittedMaxCap) {
       toast.error(`Sanctioned Loan Amount cannot exceed ${allow80Ltv ? '80%' : '75%'} LTV Cap of ${formatCurrency(currentPermittedMaxCap)}`);
       return;
     }
@@ -816,6 +821,7 @@ export function CreateGoldLoanModal({
                         <>
                           <option value="22K (91.6%)">22K Standard Hallmark (91.6%)</option>
                           <option value="24K (99.9%)">24K Fine Gold (99.9%)</option>
+                          <option value="20K (83.3%)">20K Gold (83.3%)</option>
                           <option value="18K (75.0%)">18K Jewellery Gold (75.0%)</option>
                           <option value="14K (58.5%)">14K Ornament Gold (58.5%)</option>
                         </>
@@ -900,7 +906,7 @@ export function CreateGoldLoanModal({
             ))}
 
             {/* COMBINED VALUATION SUMMARY CARD FOR ALL ORNAMENTS */}
-            <div className="p-4 bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-slate-50 rounded-2xl border-2 border-amber-300/80 space-y-2.5">
+            <div className="p-4 bg-gradient-to-br from-amber-500/10 via-amber-500/5 to-slate-50 rounded-2xl border-2 border-amber-300/80 space-y-3">
               <div className="flex items-center justify-between text-xs text-amber-950 font-bold border-b border-amber-200 pb-2">
                 <span className="flex items-center gap-1.5">
                   <Calculator className="w-4 h-4 text-amber-700" />
@@ -913,42 +919,100 @@ export function CreateGoldLoanModal({
 
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs font-medium text-slate-700 pt-1">
                 <div>
-                  <span className="text-slate-500">Gross Wt:</span>{' '}
+                  <span className="text-slate-500">Gross Weight:</span>{' '}
                   <strong className="text-slate-900">{formatWeight(totalGrossWeight)}</strong>
                 </div>
                 <div>
-                  <span className="text-slate-500">Stones Wt:</span>{' '}
+                  <span className="text-slate-500">Stones Weight:</span>{' '}
                   <strong className="text-slate-900">{formatWeight(totalStoneWeight)}</strong>
                 </div>
                 <div>
-                  <span className="text-slate-500">Market Value:</span>{' '}
-                  <strong className="text-slate-900">{formatCurrency(totalEstimatedMarketValue)}</strong>
+                  <span className="text-slate-500">100% Market Value:</span>{' '}
+                  <strong className="text-amber-900 font-extrabold text-sm">{formatCurrency(totalEstimatedMarketValue)}</strong>
                 </div>
               </div>
 
+              {/* DEDICATED DISBURSAL STRATEGY SELECTOR BAR */}
               <div className="pt-2 border-t border-amber-200 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-extrabold text-amber-950 uppercase tracking-wider">
-                    Recommended Max Loan (75% LTV Cap):
-                  </span>
-                  <span className="text-lg font-black text-amber-700">{formatCurrency(totalMaxLoanAmount)}</span>
-                </div>
+                <span className="text-xs font-extrabold text-slate-800 uppercase tracking-wider block">
+                  Select Disbursal Strategy / Valuation Cap:
+                </span>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {/* Option 1: 75% LTV */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDisbursalStrategy('LTV_75');
+                      setAllow80Ltv(false);
+                      setLoanAmount(totalMaxLoanAmount);
+                      setIsCustomLoanAmount(false);
+                    }}
+                    className={`p-2.5 rounded-xl border-2 text-left transition-all ${
+                      disbursalStrategy === 'LTV_75'
+                        ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-sm font-bold'
+                        : 'bg-white text-slate-700 border-slate-200 hover:border-amber-300'
+                    }`}
+                  >
+                    <span className="text-[10px] uppercase font-bold block opacity-80">75% Standard LTV</span>
+                    <span className="text-xs font-extrabold block">{formatCurrency(totalMaxLoanAmount)}</span>
+                  </button>
 
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 pt-2 border-t border-amber-200/60">
-                  <label className="inline-flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
-                      checked={allow80Ltv}
-                      onChange={(e) => setAllow80Ltv(e.target.checked)}
-                      className="w-4 h-4 text-amber-600 rounded border-amber-300 focus:ring-amber-500 cursor-pointer"
-                    />
-                    <span className="text-xs font-bold text-slate-800">Allow Loan up to Max 80%</span>
-                  </label>
+                  {/* Option 2: 80% LTV */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDisbursalStrategy('LTV_80');
+                      setAllow80Ltv(true);
+                      setLoanAmount(totalMaxLoanAmount80);
+                      setIsCustomLoanAmount(false);
+                    }}
+                    className={`p-2.5 rounded-xl border-2 text-left transition-all ${
+                      disbursalStrategy === 'LTV_80'
+                        ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-sm font-bold'
+                        : 'bg-white text-slate-700 border-slate-200 hover:border-amber-300'
+                    }`}
+                  >
+                    <span className="text-[10px] uppercase font-bold block opacity-80">80% High LTV</span>
+                    <span className="text-xs font-extrabold block">{formatCurrency(totalMaxLoanAmount80)}</span>
+                  </button>
 
-                  <div className="text-xs font-bold text-slate-700">
-                    <span className="text-slate-500 mr-1">Maximum Loan (80%):</span>
-                    <span className="font-extrabold text-amber-900">{formatCurrency(totalMaxLoanAmount80)}</span>
-                  </div>
+                  {/* Option 3: 100% Market Value */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDisbursalStrategy('FULL_100');
+                      setLoanAmount(totalEstimatedMarketValue);
+                      setIsCustomLoanAmount(true);
+                    }}
+                    className={`p-2.5 rounded-xl border-2 text-left transition-all ${
+                      disbursalStrategy === 'FULL_100'
+                        ? 'bg-emerald-600 text-white border-emerald-700 shadow-sm font-bold'
+                        : 'bg-white text-slate-700 border-slate-200 hover:border-emerald-300'
+                    }`}
+                  >
+                    <span className="text-[10px] uppercase font-bold block opacity-80">100% Full Market</span>
+                    <span className="text-xs font-extrabold block">{formatCurrency(totalEstimatedMarketValue)}</span>
+                  </button>
+
+                  {/* Option 4: Custom Over-Market Valuation (>100%) */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDisbursalStrategy('CUSTOM_OVER_VALUATION');
+                      setIsCustomLoanAmount(true);
+                      if (loanAmount <= totalEstimatedMarketValue) {
+                        setLoanAmount(Math.round(totalEstimatedMarketValue * 1.10));
+                      }
+                    }}
+                    className={`p-2.5 rounded-xl border-2 text-left transition-all ${
+                      disbursalStrategy === 'CUSTOM_OVER_VALUATION'
+                        ? 'bg-purple-700 text-white border-purple-800 shadow-md font-bold'
+                        : 'bg-purple-50 text-purple-900 border-purple-200 hover:border-purple-400'
+                    }`}
+                  >
+                    <span className="text-[10px] uppercase font-extrabold block text-amber-300">⚡ Over Market (&gt;100%)</span>
+                    <span className="text-xs font-black block">Custom Amount</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -960,50 +1024,158 @@ export function CreateGoldLoanModal({
               3. Loan Disbursal, Tenure & Interest Terms
             </span>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Sanctioned Loan Amount (₹) <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  max={currentPermittedMaxCap}
-                  value={loanAmount}
-                  onChange={(e) => setLoanAmount(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-extrabold text-amber-700 focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                  required
-                />
-                <p className="text-[10px] font-bold text-amber-800 mt-0.5">
-                  Max allowed: {formatCurrency(currentPermittedMaxCap)} ({allow80Ltv ? '80% LTV' : '75% LTV'})
+            {/* DEDICATED CUSTOM OVER-MARKET VALUATION SECTION */}
+            {disbursalStrategy === 'CUSTOM_OVER_VALUATION' && (
+              <div className="p-4 bg-purple-950/5 border-2 border-purple-300 rounded-2xl space-y-3">
+                <div className="flex items-center justify-between border-b border-purple-200 pb-2">
+                  <span className="text-xs font-black text-purple-950 uppercase tracking-wider flex items-center gap-1.5">
+                    <span>⚡ Dedicated Shop Owner Over-Market Valuation Disbursal Section</span>
+                  </span>
+                  <span className="text-[10px] font-extrabold bg-purple-200 text-purple-950 px-2 py-0.5 rounded-full">
+                    Shop Owner Discretion
+                  </span>
+                </div>
+
+                <p className="text-xs text-purple-900 leading-tight">
+                  Enter any custom sanctioned amount higher than the 100% market valuation (e.g. ₹1,10,000 for gold valued at ₹1,00,000).
                 </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-xs font-extrabold text-purple-950 mb-1">
+                      Custom Sanctioned Amount (₹) <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      type="number"
+                      value={loanAmount}
+                      onChange={(e) => {
+                        setLoanAmount(Number(e.target.value));
+                        setIsCustomLoanAmount(true);
+                      }}
+                      className="w-full px-3.5 py-2.5 bg-white border-2 border-purple-400 rounded-xl text-base font-black text-purple-950 focus:ring-2 focus:ring-purple-600 focus:outline-none"
+                      placeholder="e.g. 110000"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-purple-900 mb-1">Quick Over-Market Addons:</label>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      {[
+                        { label: '+5% (105%)', pct: 1.05 },
+                        { label: '+10% (110%)', pct: 1.10 },
+                        { label: '+15% (115%)', pct: 1.15 },
+                        { label: '+20% (120%)', pct: 1.20 },
+                      ].map((item) => {
+                        const amt = Math.round(totalEstimatedMarketValue * item.pct);
+                        return (
+                          <button
+                            key={item.label}
+                            type="button"
+                            onClick={() => {
+                              setLoanAmount(amt);
+                              setIsCustomLoanAmount(true);
+                            }}
+                            className="px-2 py-1.5 bg-white hover:bg-purple-100 border border-purple-300 rounded-lg text-[11px] font-bold text-purple-900 transition-all text-center"
+                          >
+                            {item.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Over-Valuation Live Calculation Breakdown */}
+                <div className="p-3 bg-white rounded-xl border border-purple-200 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-semibold text-slate-700">
+                  <div>
+                    <span className="text-[10px] text-slate-500 block uppercase font-bold">100% Market Value</span>
+                    <strong className="text-slate-900 text-sm font-extrabold">{formatCurrency(totalEstimatedMarketValue)}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block uppercase font-bold">Sanctioned Amount</span>
+                    <strong className="text-purple-700 text-sm font-extrabold">{formatCurrency(loanAmount)}</strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block uppercase font-bold">Effective LTV Ratio</span>
+                    <strong className="text-purple-700 text-sm font-extrabold">
+                      {totalEstimatedMarketValue > 0 ? ((loanAmount / totalEstimatedMarketValue) * 100).toFixed(1) : 0}%
+                    </strong>
+                  </div>
+                  <div>
+                    <span className="text-[10px] text-slate-500 block uppercase font-bold">Over-Market Credit</span>
+                    <strong className="text-emerald-700 text-sm font-extrabold">
+                      {loanAmount > totalEstimatedMarketValue ? `+${formatCurrency(loanAmount - totalEstimatedMarketValue)}` : '₹0'}
+                    </strong>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div className="space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {disbursalStrategy !== 'CUSTOM_OVER_VALUATION' && (
+                  <div className="sm:col-span-1">
+                    <label className="block text-xs font-bold text-slate-700 mb-1 flex items-center justify-between">
+                      <span>Sanctioned Loan Amount (₹) <span className="text-rose-500">*</span></span>
+                    </label>
+                    <input
+                      type="number"
+                      value={loanAmount}
+                      onChange={(e) => {
+                        setLoanAmount(Number(e.target.value));
+                        setIsCustomLoanAmount(true);
+                      }}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-extrabold text-amber-700 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                      required
+                    />
+                    <p className="text-[10px] font-medium text-slate-500 mt-1">
+                      Valuation: <strong>{formatCurrency(totalEstimatedMarketValue)}</strong>
+                    </p>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">Monthly Interest Rate (%)</label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={interestRate}
+                    onChange={(e) => setInterestRate(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Loan Tenure (Months) <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={tenureMonths}
+                    onChange={(e) => setTenureMonths(Number(e.target.value))}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    required
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Monthly Interest Rate (%)</label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={interestRate}
-                  onChange={(e) => setInterestRate(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">
-                  Loan Tenure (Months) <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="60"
-                  value={tenureMonths}
-                  onChange={(e) => setTenureMonths(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                  required
-                />
-              </div>
+              {/* Informational Custom Loan Badges when not in dedicated custom mode */}
+              {disbursalStrategy !== 'CUSTOM_OVER_VALUATION' && loanAmount > totalEstimatedMarketValue && totalEstimatedMarketValue > 0 && (
+                <div className="p-2.5 bg-purple-50 rounded-xl border border-purple-200 flex items-start gap-2 text-purple-900 text-xs">
+                  <span className="text-base shrink-0">⚡</span>
+                  <div>
+                    <strong className="block font-bold">Custom Over-Market Disbursal Active</strong>
+                    <span>
+                      Sanctioned amount ({formatCurrency(loanAmount)}) exceeds 100% Market Valuation ({formatCurrency(totalEstimatedMarketValue)}) by{' '}
+                      <strong>{formatCurrency(loanAmount - totalEstimatedMarketValue)}</strong>.
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Quick Tenure Selection Pills */}

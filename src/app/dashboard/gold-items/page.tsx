@@ -6,13 +6,16 @@
 // ========================================================
 
 import React, { useState, useEffect } from 'react';
-import { Package, Search, Lock, ShieldCheck, Tag, FileSpreadsheet } from 'lucide-react';
+import { Printer, Package, Search, Lock, ShieldCheck, Tag, FileSpreadsheet, FileCode } from 'lucide-react';
 import DashboardLayout from '../../../components/DashboardLayout';
 import { db } from '../../../lib/supabase/supabaseDb';
 import { getSessionUser } from '../../../lib/supabase/client';
 import { GoldItem } from '../../../types';
 import { formatCurrency, formatWeight } from '../../../lib/utils';
 import { exportToExcel } from '../../../lib/excel-export';
+import { exportToPDF } from '../../../lib/pdf-export';
+import { exportToXML } from '../../../lib/xml-export';
+import { toast } from 'sonner';
 
 export default function GoldItemsPage() {
   const [items, setItems] = useState<GoldItem[]>([]);
@@ -80,6 +83,41 @@ export default function GoldItemsPage() {
     exportToExcel(rows, `Vault_Gold_Inventory_${new Date().toISOString().split('T')[0]}`);
   };
 
+  const handleExportPDF = () => {
+    const session = getSessionUser();
+    exportToPDF({
+      title: 'Vault Inventory Stock Register Report',
+      subtitle: 'Physical Locker Packet Inventory, Hallmarks & Valuation Manifest',
+      columns: ['Locker Pocket #', 'Ornament Type', 'Purity Grade', 'Gross Wt', 'Net Wt', 'Hallmark HUID', 'Market Valuation (₹)'],
+      rows: filtered.map((g) => [
+        g.pocket_locker_number || '',
+        g.ornament_type || '',
+        g.purity || '',
+        `${g.gross_weight || 0}g`,
+        `${g.net_weight || 0}g`,
+        g.hallmark_number || 'N/A',
+        formatCurrency(g.estimated_value || 0),
+      ]),
+      shop: session?.shop,
+      filename: `Vault_Inventory_${new Date().toISOString().split('T')[0]}`,
+    });
+  };
+
+  const handleExportXML = () => {
+    const rows = filtered.map((g) => ({
+      LockerNumber: g.pocket_locker_number || '',
+      OrnamentType: g.ornament_type || '',
+      Purity: g.purity || '',
+      GrossWeightGrams: g.gross_weight || 0,
+      StoneDeductionGrams: g.stone_weight || 0,
+      NetWeightGrams: g.net_weight || 0,
+      HallmarkHUID: g.hallmark_number || 'N/A',
+      EstimatedValueRupees: g.estimated_value || 0,
+    }));
+    exportToXML(rows, `Vault_Gold_Inventory_${new Date().toISOString().split('T')[0]}`, 'VaultManifest', 'PledgedItem');
+    toast.success(`Exported ${rows.length} vault items to XML!`);
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -93,13 +131,31 @@ export default function GoldItemsPage() {
             </p>
           </div>
 
-          <button
-            onClick={handleExport}
-            className="px-4 py-2 text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl flex items-center gap-1.5 self-start md:self-auto transition-colors"
-          >
-            <FileSpreadsheet className="w-4 h-4" />
-            <span>Export Vault Manifest</span>
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={handleExportPDF}
+              className="px-3.5 py-2 text-xs font-bold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs"
+            >
+              <Printer className="w-4 h-4 text-rose-600" />
+              <span>Export PDF 📄</span>
+            </button>
+
+            <button
+              onClick={handleExportXML}
+              className="px-3.5 py-2 text-xs font-bold bg-amber-50 text-amber-800 hover:bg-amber-100 border border-amber-200 rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs"
+            >
+              <FileCode className="w-4 h-4 text-amber-700" />
+              <span>Export XML 📁</span>
+            </button>
+
+            <button
+              onClick={handleExport}
+              className="px-3.5 py-2 text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              <span>Export Excel 📊</span>
+            </button>
+          </div>
         </div>
 
         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">

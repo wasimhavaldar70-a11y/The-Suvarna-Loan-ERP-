@@ -6,7 +6,7 @@
 // ========================================================
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Camera, Upload, Trash2, CheckCircle2, X, RefreshCw, Zap } from 'lucide-react';
+import { Eye, Camera, Upload, Trash2, CheckCircle2, X, RefreshCw, Zap } from 'lucide-react';
 import { compressImageToWebP, CompressedImageResult } from '../../lib/imageCompressor';
 import { toast } from 'sonner';
 
@@ -27,6 +27,7 @@ export function DocumentCameraUpload({
 }: DocumentCameraUploadProps) {
   const [compressing, setCompressing] = useState(false);
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
+  const [previewModalOpen, setPreviewModalOpen] = useState(false);
   const [sizeBadge, setSizeBadge] = useState<string>('');
   const [reductionBadge, setReductionBadge] = useState<number | null>(null);
 
@@ -154,18 +155,26 @@ export function DocumentCameraUpload({
             alt={label}
             className={`w-full object-cover ${aspectRatio === 'square' ? 'h-36' : 'h-40'}`}
           />
-          <div className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+          <div className="absolute inset-0 bg-slate-950/65 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5 p-2">
+            <button
+              type="button"
+              onClick={() => setPreviewModalOpen(true)}
+              className="px-2 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-xs font-black flex items-center gap-1 shadow-2xs"
+              title="View Full Resolution Image"
+            >
+              <Eye className="w-3.5 h-3.5" /> View
+            </button>
             <button
               type="button"
               onClick={openCameraModal}
-              className="px-2.5 py-1.5 bg-amber-500 text-slate-950 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-amber-400"
+              className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 border border-slate-700"
             >
               <Camera className="w-3.5 h-3.5" /> Retake
             </button>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
-              className="px-2.5 py-1.5 bg-white text-slate-900 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-slate-100"
+              className="px-2 py-1.5 bg-white text-slate-900 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-slate-100"
             >
               <Upload className="w-3.5 h-3.5" /> Upload
             </button>
@@ -173,10 +182,24 @@ export function DocumentCameraUpload({
               type="button"
               onClick={handleRemove}
               className="p-1.5 bg-rose-600 text-white rounded-lg hover:bg-rose-700"
+              title="Remove File"
             >
               <Trash2 className="w-4 h-4" />
             </button>
           </div>
+
+          <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setPreviewModalOpen(true)}
+              className="px-2 py-0.5 bg-slate-950/80 hover:bg-amber-500 hover:text-slate-950 text-white text-[10px] font-extrabold rounded-md backdrop-blur-xs flex items-center gap-1 border border-white/20 transition-colors"
+              title="View Image"
+            >
+              <Eye className="w-3 h-3 text-amber-400" />
+              <span>View</span>
+            </button>
+          </div>
+
           <div className="absolute bottom-1.5 left-1.5 bg-slate-950/80 text-white text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-xs flex items-center gap-1">
             <CheckCircle2 className="w-3 h-3 text-emerald-400" />
             <span>Ready</span>
@@ -258,6 +281,34 @@ export function DocumentCameraUpload({
               >
                 <Camera className="w-4 h-4 shrink-0" />
                 <span>Capture & Compress</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Preview Modal */}
+      {previewModalOpen && value && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-4 shadow-2xl text-white space-y-3">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <h3 className="text-sm font-bold text-amber-400 flex items-center gap-2">
+                <Eye className="w-4 h-4" />
+                <span>{label} Preview</span>
+              </h3>
+              <button onClick={() => setPreviewModalOpen(false)} className="text-slate-400 hover:text-white p-1">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="my-2 max-h-[70vh] overflow-hidden rounded-xl flex items-center justify-center bg-black">
+              <img src={value} alt={label} className="max-h-[65vh] w-auto object-contain" />
+            </div>
+            <div className="flex justify-end pt-2">
+              <button
+                onClick={() => setPreviewModalOpen(false)}
+                className="px-4 py-1.5 bg-slate-800 text-xs font-bold rounded-xl text-white hover:bg-slate-700"
+              >
+                Close Preview
               </button>
             </div>
           </div>

@@ -3,7 +3,7 @@
 // Location: src/lib/closureDocumentGenerator.ts
 // ========================================================
 
-import { Loan, Shop } from '../types';
+import { Loan, Shop, Payment } from '../types';
 import { formatCurrency, formatDate, formatWeight } from './utils';
 import { calculateLoanFinancials } from './goldValuationEngine';
 
@@ -823,6 +823,146 @@ export function generateEnterpriseLoanStatementHTML(opts: DocumentOptions): stri
 </body>
 </html>
   `;
+}
+
+/**
+ * Generates official GST & Banking Grade Single Payment Receipt HTML
+ */
+export function generateSinglePaymentReceiptHTML(payment: Payment, shop?: Shop | null): string {
+  const s = shop || DEFAULT_SHOP_INFO;
+  const custName = payment.loan?.customer?.full_name || 'Borrower Customer';
+  const custMobile = payment.loan?.customer?.mobile_number || 'N/A';
+  const custAadhaar = payment.loan?.customer?.aadhaar_number || 'N/A';
+  const loanNo = payment.loan?.loan_number || 'GL-2026-001';
+  const ornamentName = payment.loan?.gold_item?.ornament_type || 'Gold Item Collateral';
+  const netWeight = payment.loan?.gold_item?.net_weight || 0;
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>Payment Receipt - ${payment.receipt_number || 'REC-2026-0000'}</title>
+  <style>
+    @page { size: A4 portrait; margin: 15mm; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; margin: 0; padding: 20px; background: #fff; line-height: 1.5; }
+    .receipt-container { border: 2px solid #cbd5e1; padding: 25px; border-radius: 12px; max-width: 800px; margin: 0 auto; background: #ffffff; }
+    .header { border-bottom: 2px solid #f59e0b; padding-bottom: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-start; }
+    .shop-title { font-size: 22px; font-weight: 900; color: #78350f; margin: 0; text-transform: uppercase; }
+    .shop-sub { font-size: 11px; color: #64748b; margin-top: 3px; }
+    .receipt-badge { background: linear-gradient(135deg, #15803d, #16a34a); color: #fff; padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; display: inline-block; }
+    .grid-two { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
+    .card-box { background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px 16px; border-radius: 10px; font-size: 12px; }
+    .card-label { font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase; margin-bottom: 4px; }
+    .card-val { font-size: 13px; font-weight: 800; color: #0f172a; }
+    .amount-banner { background: #f0fdf4; border: 2px solid #86efac; border-radius: 12px; padding: 16px; text-align: center; margin: 20px 0; }
+    .amount-num { font-size: 28px; font-weight: 900; color: #15803d; }
+    .table-details { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
+    .table-details th { background: #f1f5f9; padding: 8px 12px; border: 1px solid #e2e8f0; font-size: 10px; text-transform: uppercase; text-align: left; }
+    .table-details td { padding: 10px 12px; border: 1px solid #e2e8f0; font-weight: 600; }
+    .footer-seal { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 35px; pt: 15px; border-top: 1px solid #cbd5e1; }
+    .verified-stamp { border: 2px solid #16a34a; color: #16a34a; padding: 6px 14px; border-radius: 30px; font-weight: 900; text-transform: uppercase; font-size: 11px; display: inline-block; transform: rotate(-3deg); }
+    .sig-line { width: 160px; border-bottom: 1.5px solid #0f172a; margin-bottom: 4px; margin-left: auto; }
+  </style>
+</head>
+<body>
+  <div class="receipt-container">
+    <div class="header">
+      <div>
+        <h1 class="shop-title">👑 ${s.shop_name}</h1>
+        <div class="shop-sub">${s.address || 'Enterprise Gold Loan Office'} • GSTIN: ${s.gstin || '27AAAAA0000A1Z5'}</div>
+        <div class="shop-sub">Contact: ${s.mobile || '+91 98765 43210'} • License #: ${s.license_number || 'GL-2026-REG'}</div>
+      </div>
+      <div style="text-align: right;">
+        <span class="receipt-badge">OFFICIAL REPAYMENT RECEIPT</span>
+        <div style="font-size: 12px; font-weight: 800; color: #b45309; margin-top: 8px;">Receipt #: ${payment.receipt_number || 'REC-2026-0001'}</div>
+        <div style="font-size: 11px; color: #64748b;">Date: ${formatDate(payment.payment_date)}</div>
+      </div>
+    </div>
+
+    <div class="grid-two">
+      <div class="card-box">
+        <div class="card-label">Borrower Customer Profile</div>
+        <div class="card-val">${custName}</div>
+        <div style="font-size: 11px; color: #475569; margin-top: 2px;">Mobile: ${custMobile}</div>
+        <div style="font-size: 11px; color: #475569;">Aadhaar #: ${custAadhaar}</div>
+      </div>
+
+      <div class="card-box">
+        <div class="card-label">Pledged Gold Loan Contract</div>
+        <div class="card-val">Loan Contract #: ${loanNo}</div>
+        <div style="font-size: 11px; color: #475569; margin-top: 2px;">Collateral: ${ornamentName}</div>
+        <div style="font-size: 11px; color: #475569;">Net Gold Weight: ${netWeight} grams</div>
+      </div>
+    </div>
+
+    <div class="amount-banner">
+      <div style="font-size: 11px; font-weight: 800; color: #166534; text-transform: uppercase;">Total Amount Paid & Received</div>
+      <div class="amount-num">${formatCurrency(payment.amount)}</div>
+      <div style="font-size: 11px; color: #15803d; font-weight: 700; margin-top: 2px;">Payment Mode: ${payment.payment_method} • Transaction Status: SUCCESS (PAID)</div>
+    </div>
+
+    <table class="table-details">
+      <thead>
+        <tr>
+          <th>Transaction Field</th>
+          <th>Details & Values</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Repayment Category / Type</td>
+          <td><strong>${payment.payment_type}</strong></td>
+        </tr>
+        <tr>
+          <td>Principal Portion Credit</td>
+          <td>${formatCurrency(payment.principal_portion || 0)}</td>
+        </tr>
+        <tr>
+          <td>Interest Portion Credit</td>
+          <td>${formatCurrency(payment.interest_portion || payment.amount)}</td>
+        </tr>
+        <tr>
+          <td>Payment Method & Reference</td>
+          <td>${payment.payment_method} ${payment.notes ? `(${payment.notes})` : ''}</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <div class="footer-seal">
+      <div>
+        <div class="verified-stamp">SUVARNA LOAN ERP • OFFICIALLY PAID ✅</div>
+        <div style="font-size: 9px; color: #94a3b8; margin-top: 8px;">Digitally generated payment voucher. Verified under RBI Multi-Tenant Gold Finance ERP.</div>
+      </div>
+
+      <div style="text-align: right;">
+        <div class="sig-line"></div>
+        <div style="font-size: 11px; font-weight: 800; color: #0f172a;">Authorized Cashier / Stamp</div>
+        <div style="font-size: 10px; color: #64748b;">${s.owner_name} (${s.shop_name})</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+/**
+ * Triggers Browser Print to PDF dialog for a single repayment transaction receipt
+ */
+export function printSinglePaymentReceiptPDF(payment: Payment, shop?: Shop | null) {
+  if (typeof window === 'undefined') return;
+  const htmlContent = generateSinglePaymentReceiptHTML(payment, shop);
+  const printWindow = window.open('', '_blank', 'width=900,height=750');
+  if (printWindow) {
+    printWindow.document.open();
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+    printWindow.focus();
+    setTimeout(() => {
+      printWindow.print();
+    }, 400);
+  }
 }
 
 /**

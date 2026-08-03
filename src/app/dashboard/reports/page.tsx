@@ -10,6 +10,7 @@ import {
   FilePieChart,
   Download,
   Printer,
+  FileSpreadsheet,
   Coins,
   AlertTriangle,
   Package,
@@ -415,17 +416,17 @@ export default function ReportsPage() {
           <div className="flex items-center gap-2 self-start sm:self-center">
             <button
               onClick={handlePrintAuditStatement}
-              className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-amber-400 font-extrabold rounded-xl text-xs flex items-center gap-2 shadow-md transition-all active:scale-95"
+              className="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-extrabold rounded-xl text-xs flex items-center gap-2 shadow-md shadow-rose-600/20 transition-all active:scale-95"
             >
-              <Printer className="w-4 h-4 text-amber-400" />
-              <span>Print A4 Audit Statement</span>
+              <Printer className="w-4 h-4 text-white" />
+              <span>Export PDF 📄</span>
             </button>
             <button
               onClick={handleExportPeriodExcel}
               className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold rounded-xl text-xs flex items-center gap-2 shadow-md shadow-emerald-600/20 transition-all active:scale-95"
             >
-              <Download className="w-4 h-4" />
-              <span>Export Excel</span>
+              <FileSpreadsheet className="w-4 h-4 text-white" />
+              <span>Export Excel 📊</span>
             </button>
           </div>
         </div>

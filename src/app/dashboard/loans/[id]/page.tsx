@@ -46,7 +46,8 @@ import { formatCurrency, formatWeight, formatDate } from '../../../../lib/utils'
 import { calculateLoanFinancials, calculateReducingBalanceSchedule } from '../../../../lib/goldValuationEngine';
 import {
   generateEnterpriseLoanStatementHTML,
-  printHTMLDocument
+  printHTMLDocument,
+  printSinglePaymentReceiptPDF,
 } from '../../../../lib/closureDocumentGenerator';
 import { toast } from 'sonner';
 
@@ -563,12 +564,13 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
                   <th className="py-3 px-4">Method</th>
                   <th className="py-3 px-4">Amount Paid</th>
                   <th className="py-3 px-4">Notes</th>
+                  <th className="py-3 px-4 text-right">Receipt PDF</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-800">
                 {!loan.payments || loan.payments.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-6 text-center text-slate-400">
+                    <td colSpan={7} className="py-6 text-center text-slate-400">
                       No repayments recorded yet for this loan.
                     </td>
                   </tr>
@@ -585,6 +587,20 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
                       </td>
                       <td className="py-3 px-4 font-extrabold text-emerald-600">{formatCurrency(p.amount)}</td>
                       <td className="py-3 px-4 text-slate-500">{p.notes || '-'}</td>
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const session = getSessionUser();
+                            printSinglePaymentReceiptPDF({ ...p, loan }, session?.shop);
+                          }}
+                          className="px-2.5 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-[11px] font-black inline-flex items-center gap-1 shadow-2xs transition-all active:scale-95"
+                          title="Download / Print Official GST Repayment Receipt PDF"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          <span>Receipt PDF 📄</span>
+                        </button>
+                      </td>
                     </tr>
                   ))
                 )}

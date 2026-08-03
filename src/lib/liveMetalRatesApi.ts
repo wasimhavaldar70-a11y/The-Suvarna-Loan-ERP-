@@ -6,6 +6,7 @@
 export interface LiveMetalRates {
   gold24kPerGram: number;  // ₹ / gram for 24K (99.9% pure)
   gold22kPerGram: number;  // ₹ / gram for 22K (91.6% pure)
+  gold20kPerGram: number;  // ₹ / gram for 20K (83.3% pure)
   gold18kPerGram: number;  // ₹ / gram for 18K (75.0% pure)
   silver1kg: number;       // ₹ / kg for Fine Silver (99.9% pure)
   silverPerGram: number;   // ₹ / gram for Fine Silver
@@ -38,6 +39,7 @@ export async function fetchLiveMetalRates(forceRefresh = false): Promise<LiveMet
       
       const gold24k = baseGold24kInr > 6000 ? baseGold24kInr : 7650;
       const gold22k = Math.round(gold24k * 0.9166);
+      const gold20k = Math.round(gold24k * (20 / 24));
       const gold18k = Math.round(gold24k * 0.75);
 
       const estimatedSilverUsdPerKg = 920;
@@ -47,6 +49,7 @@ export async function fetchLiveMetalRates(forceRefresh = false): Promise<LiveMet
       const rates: LiveMetalRates = {
         gold24kPerGram: gold24k,
         gold22kPerGram: gold22k,
+        gold20kPerGram: gold20k,
         gold18kPerGram: gold18k,
         silver1kg: silver1kg > 50000 ? silver1kg : 95000,
         silverPerGram: silverPerGram > 50 ? silverPerGram : 95,
@@ -65,6 +68,7 @@ export async function fetchLiveMetalRates(forceRefresh = false): Promise<LiveMet
   const fallbackRates: LiveMetalRates = {
     gold24kPerGram: 7650,
     gold22kPerGram: 7010,
+    gold20kPerGram: 6375,
     gold18kPerGram: 5738,
     silver1kg: 95000,
     silverPerGram: 95,

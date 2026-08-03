@@ -43,6 +43,7 @@ export function getPurityPercentage(karat: string): number {
   if (karat.includes('800')) return 80.0;
   if (karat.includes('24K')) return 99.9;
   if (karat.includes('22K')) return 91.66;
+  if (karat.includes('20K')) return 83.33;
   if (karat.includes('18K')) return 75.0;
   if (karat.includes('14K')) return 58.33;
   const pctMatch = karat.match(/(\d+(?:\.\d+)?)%/);

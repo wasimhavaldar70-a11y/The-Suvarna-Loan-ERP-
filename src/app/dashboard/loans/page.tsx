@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
 import Link from 'next/link';
-import { Coins, Plus, Search, Filter, FileSpreadsheet, Eye, Trash2 } from 'lucide-react';
+import { Printer, Coins, Plus, Search, Filter, FileSpreadsheet, Eye, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import DashboardLayout from '../../../components/DashboardLayout';
 import { CreateGoldLoanModal } from '../../../components/CreateGoldLoanModal';
@@ -16,6 +16,7 @@ import { getSessionUser } from '../../../lib/supabase/client';
 import { Loan } from '../../../types';
 import { formatCurrency, formatWeight, formatDate } from '../../../lib/utils';
 import { exportToExcel } from '../../../lib/excel-export';
+import { exportToPDF } from '../../../lib/pdf-export';
 
 export default function LoansPage() {
   const [loans, setLoans] = useState<Loan[]>([]);
@@ -98,6 +99,34 @@ export default function LoansPage() {
     toast.success(`Exported ${rows.length} active & overdue loan contracts to Excel!`);
   };
 
+  const handleExportPDF = () => {
+    const loansToExport = filtered.length > 0 ? filtered : loans;
+    if (!loansToExport.length) {
+      toast.error('No loan records available to export as PDF.');
+      return;
+    }
+    const session = getSessionUser();
+    exportToPDF({
+      title: 'Gold Loans Register Report',
+      subtitle: 'Comprehensive Pledged Gold Loan Contracts & Portfolios',
+      columns: ['Loan #', 'Customer Name', 'Mobile', 'Loan Amount (₹)', 'Interest %', 'Pledged Ornament', 'Net Wt (g)', 'Loan Date', 'Status'],
+      rows: loansToExport.map((l) => [
+        l.loan_number || '',
+        l.customer?.full_name || 'N/A',
+        l.customer?.mobile_number || 'N/A',
+        formatCurrency(l.loan_amount || 0),
+        `${l.interest_rate || 0}%`,
+        l.gold_item?.ornament_type || 'N/A',
+        `${l.gold_item?.net_weight || 0}g`,
+        formatDate(l.loan_date || ''),
+        l.status || 'Active',
+      ]),
+      shop: session?.shop,
+      filename: `Gold_Loans_${new Date().toISOString().split('T')[0]}`,
+    });
+    toast.success('Generated PDF Report!');
+  };
+
   const handleDeleteLoan = async (loan: Loan) => {
     if (loan.status === 'Active' || loan.status === 'Overdue') {
       toast.error(`🚨 Cannot Delete ${loan.status} Loan!`, {
@@ -135,11 +164,19 @@ export default function LoansPage() {
 
           <div className="flex items-center gap-2">
             <button
-              onClick={handleExport}
-              className="px-3.5 py-2 text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl flex items-center gap-1.5 transition-colors"
+              onClick={handleExportPDF}
+              className="px-3.5 py-2 text-xs font-bold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs"
             >
-              <FileSpreadsheet className="w-4 h-4" />
-              <span>Export CSV</span>
+              <Printer className="w-4 h-4 text-rose-600" />
+              <span>Export PDF 📄</span>
+            </button>
+
+            <button
+              onClick={handleExport}
+              className="px-3.5 py-2 text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              <span>Export Excel 📊</span>
             </button>
 
             <button

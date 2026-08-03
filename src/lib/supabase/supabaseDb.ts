@@ -379,13 +379,14 @@ export const db = {
     return { success: true, message: `Password reset link generated for ${email}` };
   },
 
-  async updateShopGoldRates(shopId: string, gold24k: number, gold22k: number, gold18k: number, silver1kg: number = 95000): Promise<boolean> {
+  async updateShopGoldRates(shopId: string, gold24k: number, gold22k: number, gold20k: number = 6375, gold18k: number = 5738, silver1kg: number = 95000): Promise<boolean> {
     const silverPerGram = Number((silver1kg / 1000).toFixed(2));
     const shops = getStorageItem<Shop[]>('shops', []);
     const idx = shops.findIndex(s => s.id === shopId);
     if (idx !== -1) {
       shops[idx].gold_rate_24k = gold24k;
       shops[idx].gold_rate_22k = gold22k;
+      shops[idx].gold_rate_20k = gold20k;
       shops[idx].gold_rate_18k = gold18k;
       shops[idx].silver_rate_1kg = silver1kg;
       shops[idx].silver_rate_per_gram = silverPerGram;
@@ -399,6 +400,7 @@ export const db = {
           .update({
             gold_rate_24k: gold24k,
             gold_rate_22k: gold22k,
+            gold_rate_20k: gold20k,
             gold_rate_18k: gold18k,
             silver_rate_1kg: silver1kg,
             silver_rate_per_gram: silverPerGram,

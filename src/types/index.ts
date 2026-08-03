@@ -26,6 +26,7 @@ export interface Shop {
   license_number?: string;
   gold_rate_24k?: number;
   gold_rate_22k?: number;
+  gold_rate_20k?: number;
   gold_rate_18k?: number;
   silver_rate_1kg?: number;
   silver_rate_per_gram?: number;
@@ -117,7 +118,7 @@ export interface GoldItem {
   gross_weight: number; // in grams
   stone_weight: number; // in grams
   net_weight: number; // in grams
-  purity: '24K (99.9%)' | '22K (91.6%)' | '18K (75.0%)' | '14K (58.5%)' | '999 Fine Silver (99.9%)' | '925 Sterling Silver (92.5%)' | '900 Coin Silver (90.0%)' | '800 Silver (80.0%)' | string;
+  purity: '24K (99.9%)' | '22K (91.6%)' | '20K (83.3%)' | '18K (75.0%)' | '14K (58.5%)' | '999 Fine Silver (99.9%)' | '925 Sterling Silver (92.5%)' | '900 Coin Silver (90.0%)' | '800 Silver (80.0%)' | string;
   purity_percentage: number;
   hallmark_number?: string;
   pocket_locker_number?: string;
@@ -253,6 +254,7 @@ export interface DashboardMetrics {
   avgLtvPercentage: number;
   goldRate24k: number;
   goldRate22k: number;
+  goldRate20k?: number;
   goldRate18k: number;
   silverRate1kg?: number;
   silverRatePerGram?: number;

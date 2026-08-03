@@ -52,6 +52,9 @@ import {
   printHTMLDocument,
   downloadHTMLDocument
 } from '../../../lib/closureDocumentGenerator';
+import { exportToExcel } from '../../../lib/excel-export';
+import { exportToPDF } from '../../../lib/pdf-export';
+import { FileSpreadsheet } from 'lucide-react';
 import { toast } from 'sonner';
 
 export default function CustomerAlertsPage() {
@@ -263,6 +266,49 @@ export default function CustomerAlertsPage() {
     { type: 'CUSTOM', label: 'Custom Alert Message', icon: MessageSquare, badgeColor: 'text-indigo-700 bg-indigo-50 border-indigo-200' },
   ];
 
+  const handleExportExcel = () => {
+    if (!loans.length) {
+      toast.error('No alerts or loan records available to export.');
+      return;
+    }
+    const rows = loans.map((l, idx) => ({
+      'Customer Name': getCustomerName(l.customer, idx),
+      'Mobile Number': getCustomerMobile(l.customer, idx),
+      'Loan Number': l.loan_number,
+      'Sanctioned Amount (₹)': l.loan_amount,
+      'Interest Rate': `${l.interest_rate}%`,
+      'Loan Date': formatDate(l.loan_date),
+      'Due Date': formatDate(l.due_date),
+      'Status': l.status,
+    }));
+    exportToExcel(rows, `WhatsApp_Alerts_Log_${new Date().toISOString().split('T')[0]}`);
+    toast.success(`Exported ${rows.length} alert logs to Excel!`);
+  };
+
+  const handleExportPDF = () => {
+    if (!loans.length) {
+      toast.error('No alerts or loan records available to export.');
+      return;
+    }
+    const session = getSessionUser();
+    exportToPDF({
+      title: 'WhatsApp Alerts & Notification Dispatch Logs',
+      subtitle: 'Audit Log of Dispatched WhatsApp Due Alerts, Interest Reminders & SMS Notices',
+      columns: ['Customer Name', 'Mobile', 'Loan Contract #', 'Loan Amount (₹)', 'Due Date', 'Status'],
+      rows: loans.map((l, idx) => [
+        getCustomerName(l.customer, idx),
+        getCustomerMobile(l.customer, idx),
+        l.loan_number || '',
+        formatCurrency(l.loan_amount || 0),
+        formatDate(l.due_date || ''),
+        l.status || 'Active',
+      ]),
+      shop: session?.shop,
+      filename: `WhatsApp_Alerts_${new Date().toISOString().split('T')[0]}`,
+    });
+    toast.success('Generated WhatsApp Alerts PDF Report!');
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -282,13 +328,31 @@ export default function CustomerAlertsPage() {
             </div>
           </div>
 
-          <button
-            onClick={loadData}
-            className="self-start sm:self-center px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-            <span>Refresh Dues</span>
-          </button>
+          <div className="flex items-center gap-2 self-start sm:self-center flex-wrap">
+            <button
+              onClick={handleExportPDF}
+              className="px-3.5 py-2 text-xs font-bold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs"
+            >
+              <Printer className="w-4 h-4 text-rose-600" />
+              <span>Export PDF 📄</span>
+            </button>
+
+            <button
+              onClick={handleExportExcel}
+              className="px-3.5 py-2 text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              <span>Export Excel 📊</span>
+            </button>
+
+            <button
+              onClick={loadData}
+              className="px-4 py-2 text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl flex items-center gap-1.5 transition-colors"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+              <span>Refresh Dues</span>
+            </button>
+          </div>
         </div>
 
         {/* KPI Summary Cards Grid */}

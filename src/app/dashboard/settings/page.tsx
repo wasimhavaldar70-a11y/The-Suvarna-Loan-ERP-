@@ -60,6 +60,7 @@ export default function SettingsPage() {
         shop.id,
         live.gold24kPerGram,
         live.gold22kPerGram,
+        live.gold20kPerGram,
         live.gold18kPerGram,
         live.silver1kg
       );
@@ -72,6 +73,7 @@ export default function SettingsPage() {
               ...prev,
               gold_rate_24k: live.gold24kPerGram,
               gold_rate_22k: live.gold22kPerGram,
+              gold_rate_20k: live.gold20kPerGram,
               gold_rate_18k: live.gold18kPerGram,
               silver_rate_1kg: live.silver1kg,
               silver_rate_per_gram: live.silverPerGram,
@@ -79,7 +81,7 @@ export default function SettingsPage() {
             }
           : null
       );
-      toast.success(`Synced Live Indian Bullion Rates! 24K: ₹${live.gold24kPerGram}/g, Fine Silver: ₹${live.silver1kg}/kg`);
+      toast.success(`Synced Live Indian Bullion Rates! 24K: ₹${live.gold24kPerGram}/g, 20K: ₹${live.gold20kPerGram}/g, Fine Silver: ₹${live.silver1kg}/kg`);
     } catch (err) {
       toast.error('Failed to sync live metal rates');
     } finally {
@@ -98,7 +100,8 @@ export default function SettingsPage() {
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     if (shop?.id) {
-      await db.updateShopGoldRates(shop.id, shop.gold_rate_24k || 7650, shop.gold_rate_22k || 7010, shop.gold_rate_18k || 5738, silverRate1kg);
+      const g24 = shop.gold_rate_24k || 7650;
+      await db.updateShopGoldRates(shop.id, g24, shop.gold_rate_22k || 7010, shop.gold_rate_20k || Math.round(g24 * (20 / 24)), shop.gold_rate_18k || 5738, silverRate1kg);
     }
     toast.success("Shop & Branch ERP configuration & Silver rate updated!");
   };
@@ -230,10 +233,14 @@ export default function SettingsPage() {
                       <span className="text-sm font-extrabold text-white">₹{liveRatesInfo.gold22kPerGram} /g</span>
                     </div>
                     <div className="p-2.5 bg-slate-800/80 rounded-xl border border-slate-700">
+                      <span className="text-[10px] text-slate-300 font-bold block">20K Gold (83.3%)</span>
+                      <span className="text-sm font-extrabold text-amber-300">₹{liveRatesInfo.gold20kPerGram} /g</span>
+                    </div>
+                    <div className="p-2.5 bg-slate-800/80 rounded-xl border border-slate-700">
                       <span className="text-[10px] text-slate-300 font-bold block">18K Jewellery Gold</span>
                       <span className="text-sm font-extrabold text-white">₹{liveRatesInfo.gold18kPerGram} /g</span>
                     </div>
-                    <div className="p-2.5 bg-slate-800/80 rounded-xl border border-slate-700">
+                    <div className="p-2.5 bg-slate-800/80 rounded-xl border border-slate-700 col-span-2">
                       <span className="text-[10px] text-slate-300 font-bold block">Fine Silver (1kg)</span>
                       <span className="text-sm font-extrabold text-slate-200">₹{liveRatesInfo.silver1kg} /kg</span>
                     </div>
