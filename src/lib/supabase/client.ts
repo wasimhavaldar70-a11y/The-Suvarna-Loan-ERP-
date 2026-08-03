@@ -34,10 +34,26 @@ export function getSessionUser(): SessionData | null {
   }
 }
 
+export function purgeTenantLocalStorage(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const keysToRemove: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key.startsWith('sl_') || key.startsWith('suvarna_'))) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+  } catch (err) {
+    console.warn('Error purging tenant localStorage:', err);
+  }
+}
+
 export function setSessionUser(session: SessionData | null): void {
   if (typeof window === 'undefined') return;
   if (!session) {
-    localStorage.removeItem(SESSION_KEY);
+    purgeTenantLocalStorage();
     document.cookie = `${SESSION_KEY}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax`;
   } else {
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));

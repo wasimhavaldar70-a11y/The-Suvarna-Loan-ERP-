@@ -411,6 +411,46 @@ export async function deleteCustomerFiles(
 }
 
 /**
+ * Intercepts Base64 data URLs and enforces upload to private Supabase Storage bucket.
+ * Throws explicit exception if upload fails to guarantee ZERO base64 strings are saved into DB columns.
+ */
+export function isBase64DataUrl(url?: string | null): boolean {
+  if (!url || typeof url !== 'string') return false;
+  return url.startsWith('data:image/') || url.startsWith('data:application/') || url.startsWith('data:');
+}
+
+export async function sanitizeStoragePathOrUpload(
+  shopId: string,
+  customerId: string,
+  urlOrPath: string | undefined | null,
+  documentType: string,
+  options?: Partial<StoragePathOptions>
+): Promise<string | null> {
+  if (!urlOrPath) return null;
+  if (!isBase64DataUrl(urlOrPath)) {
+    return urlOrPath; // Already a clean storage path
+  }
+
+  // Intercept base64 string and upload to Supabase storage bucket
+  const activeShopId = resolveActiveShopId(shopId);
+  const activeCustId = customerId || `cust-${Date.now()}`;
+
+  const { storagePath } = await uploadCustomerDocument(
+    activeShopId,
+    activeCustId,
+    urlOrPath,
+    documentType,
+    options
+  );
+
+  if (isBase64DataUrl(storagePath)) {
+    throw new Error(`Failed to upload ${documentType} to secure storage. Base64 strings cannot be written to database columns.`);
+  }
+
+  return storagePath;
+}
+
+/**
  * Component compatibility wrapper for uploadToSupabaseStorage.
  * Resolves active shop ID and uploads to Uploaded-Documents/{ShopName}_{shop_id}/{CustomerName}_{customer_id}/
  */
@@ -422,23 +462,22 @@ export async function uploadToSupabaseStorage(
     return base64DataUrl;
   }
 
-  try {
-    const shopId = resolveActiveShopId(options.shopId);
-    const customerId = options.customerId || `cust-${Date.now()}`;
-    const docType = options.docType || 'Document';
+  const shopId = resolveActiveShopId(options.shopId);
+  const customerId = options.customerId || `cust-${Date.now()}`;
+  const docType = options.docType || 'Document';
 
-    const { storagePath } = await uploadCustomerDocument(
-      shopId,
-      customerId,
-      base64DataUrl,
-      docType,
-      options
-    );
+  const { storagePath } = await uploadCustomerDocument(
+    shopId,
+    customerId,
+    base64DataUrl,
+    docType,
+    options
+  );
 
-    // Return long-lived 7-day signed URL for immediate UI rendering & database persistence
-    return await getSignedDocumentUrl(shopId, storagePath, 604800);
-  } catch (err) {
-    console.error('uploadToSupabaseStorage fallback exception:', err);
-    return base64DataUrl;
+  if (isBase64DataUrl(storagePath)) {
+    throw new Error(`Storage upload failed for ${docType}. Base64 image URL cannot be stored in database.`);
   }
+
+  // Return clean storage path for database persistence
+  return storagePath;
 }

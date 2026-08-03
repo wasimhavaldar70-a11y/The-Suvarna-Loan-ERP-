@@ -22,7 +22,7 @@ import {
   DashboardMetrics 
 } from '../../types';
 import { calculateGoldValuation, calculateLoanFinancials } from '../goldValuationEngine';
-import { uploadToSupabaseStorage, deleteCustomerFiles, getSignedDocumentUrl } from '../storageHelper';
+import { uploadToSupabaseStorage, deleteCustomerFiles, getSignedDocumentUrl, sanitizeStoragePathOrUpload, isBase64DataUrl } from '../storageHelper';
 import { generateNextCustomerId, generateNextGoldItemId, generateNextLoanId, generateNextPaymentId, formatHumanId } from '../idGenerator';
 import { logAuditEvent } from '../auditLog';
 
@@ -91,12 +91,19 @@ const DEFAULT_GOLD_ITEMS: GoldItem[] = [];
 const DEFAULT_LOANS: Loan[] = [];
 const DEFAULT_PAYMENTS: Payment[] = [];
 
-// Helper to manage LocalStorage DB tables
-function getStorageItem<T>(key: string, defaultVal: T): T {
+// Tenant-Scoped LocalStorage Helper (CRIT-01 Remediation)
+function getStorageKey(key: string, shopId?: string): string {
+  const activeSession = getSessionUser();
+  const effectiveShopId = shopId || activeSession?.shop?.id || activeSession?.user?.shop_id || 'shared';
+  return `sl_${effectiveShopId}_${key}`;
+}
+
+function getStorageItem<T>(key: string, defaultVal: T, shopId?: string): T {
   if (typeof window === 'undefined') return defaultVal;
-  const raw = localStorage.getItem(`sl_${key}`);
+  const storageKey = getStorageKey(key, shopId);
+  const raw = localStorage.getItem(storageKey);
   if (!raw) {
-    localStorage.setItem(`sl_${key}`, JSON.stringify(defaultVal));
+    localStorage.setItem(storageKey, JSON.stringify(defaultVal));
     return defaultVal;
   }
   try {
@@ -106,9 +113,10 @@ function getStorageItem<T>(key: string, defaultVal: T): T {
   }
 }
 
-function setStorageItem<T>(key: string, val: T): void {
+function setStorageItem<T>(key: string, val: T, shopId?: string): void {
   if (typeof window === 'undefined') return;
-  localStorage.setItem(`sl_${key}`, JSON.stringify(val));
+  const storageKey = getStorageKey(key, shopId);
+  localStorage.setItem(storageKey, JSON.stringify(val));
 }
 
 const FALLBACK_CUSTOMERS = [
@@ -536,9 +544,30 @@ export const db = {
       created_at: new Date().toISOString(),
     };
 
+    // CRIT-02 Remediation: Sanitize / Upload Base64 Data URLs to Storage Bucket
+    if (isRealSupabase) {
+      try {
+        if (newCust.photo_url && isBase64DataUrl(newCust.photo_url)) {
+          newCust.photo_url = (await sanitizeStoragePathOrUpload(newCust.shop_id, newCust.id, newCust.photo_url, 'Passport-Photo', { customerName: newCust.full_name })) || undefined;
+        }
+        if (newCust.aadhaar_url && isBase64DataUrl(newCust.aadhaar_url)) {
+          newCust.aadhaar_url = (await sanitizeStoragePathOrUpload(newCust.shop_id, newCust.id, newCust.aadhaar_url, 'Aadhaar-Front', { customerName: newCust.full_name })) || undefined;
+        }
+        if (newCust.aadhaar_back_url && isBase64DataUrl(newCust.aadhaar_back_url)) {
+          newCust.aadhaar_back_url = (await sanitizeStoragePathOrUpload(newCust.shop_id, newCust.id, newCust.aadhaar_back_url, 'Aadhaar-Back', { customerName: newCust.full_name })) || undefined;
+        }
+        if (newCust.pan_url && isBase64DataUrl(newCust.pan_url)) {
+          newCust.pan_url = (await sanitizeStoragePathOrUpload(newCust.shop_id, newCust.id, newCust.pan_url, 'PAN-Card', { customerName: newCust.full_name })) || undefined;
+        }
+      } catch (err: any) {
+        console.error('Customer document storage upload error:', err);
+        throw new Error(`Document upload error: ${err.message || 'Failed to upload document to storage bucket.'}`);
+      }
+    }
+
     const filteredLocal = localCustomers.filter(c => c.id !== newCust.id);
     filteredLocal.unshift(newCust);
-    setStorageItem('customers', filteredLocal);
+    setStorageItem('customers', filteredLocal, newCust.shop_id);
 
     if (isRealSupabase) {
       try {
