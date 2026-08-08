@@ -29,9 +29,10 @@ export default function LoansPage() {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [createLoanModalOpen, setCreateLoanModalOpen] = useState(false);
 
-  const loadLoans = (bypassCache = false) => {
-    if (bypassCache) clearDbCache('loans');
-    setLoading(true);
+  const loadLoans = (isInitial = false) => {
+    if (isInitial && loans.length === 0) {
+      setLoading(true);
+    }
     const session = getSessionUser();
     const shopId = session?.user?.shop_id || session?.shop?.id || '';
     if (!shopId) {
@@ -45,7 +46,7 @@ export default function LoansPage() {
   };
 
   useEffect(() => {
-    loadLoans(false);
+    loadLoans(true);
 
     const handleRealtimeUpdate = (e: any) => {
       if (!e.detail?.table || e.detail.table === 'loans' || e.detail.table === 'payments' || e.detail.table === 'customers') {

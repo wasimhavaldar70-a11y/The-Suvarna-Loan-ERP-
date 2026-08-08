@@ -10,6 +10,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Receipt, X, Coins, CheckCircle2, Wallet, Calendar, ShieldCheck, Printer, ArrowRight, Send, Layers } from 'lucide-react';
 import { db } from '../lib/supabase/supabaseDb';
+import { getSessionUser } from '../lib/supabase/client';
 import { Loan, LoanDisbursement } from '../types';
 import { formatCurrency, formatDate } from '../lib/utils';
 import { calculateLoanFinancials, calculateDisbursementFinancials } from '../lib/goldValuationEngine';
@@ -131,10 +132,13 @@ export function RecordRepaymentModal({
 
     setLoading(true);
     try {
+      const session = getSessionUser();
+      const targetShopId = loan.shop_id || session?.user?.shop_id || session?.shop?.id || '';
       const isTargetingAll = selectedTrancheId === 'ALL';
       const activeTrancheNum = activeTranche?.disbursement_number;
 
       const savedPmt = await db.recordPayment({
+        shop_id: targetShopId,
         loan_id: loan.id,
         amount: paymentAmount,
         payment_type: paymentType,

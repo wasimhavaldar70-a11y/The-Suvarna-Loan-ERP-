@@ -77,22 +77,23 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
   const [editableMobile, setEditableMobile] = useState('');
   const [savingMobile, setSavingMobile] = useState(false);
 
-  const loadLoan = async () => {
-    setLoading(true);
+  const loadLoan = async (isInitial = false) => {
+    if (isInitial && !loan) {
+      setLoading(true);
+    }
     clearDbCache();
-    const data = await db.getLoanById(resolvedParams.id);
+    const session = getSessionUser();
+    const activeShopId = session?.user?.shop_id || session?.shop?.id || '';
+    const data = await db.getLoanById(resolvedParams.id, activeShopId);
     setLoan(data);
     if (data && data.customer) {
       setEditableMobile(data.customer.mobile_number);
     }
-    // Fetch live gold rate from shop settings
-    const session = getSessionUser();
-    const activeShopId = data?.shop_id || session?.user?.shop_id || session?.shop?.id || '';
-    if (activeShopId) {
-      const shop = await db.getShop(activeShopId);
-      if (shop && shop.gold_rate_24k) {
-        setGoldRate24k(shop.gold_rate_24k);
-      }
+    // Fetch live gold rate from central bullion service
+    const targetShopId = data?.shop_id || activeShopId;
+    if (targetShopId) {
+      const rates = await db.getShopGoldRates(targetShopId);
+      setGoldRate24k(rates.gold24k);
     }
     setLoading(false);
   };
@@ -172,27 +173,31 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
 
   const handlePrintPaymentReceipt = (payment: Payment) => {
     const session = getSessionUser();
-    printSinglePaymentReceiptPDF(payment, session?.shop || null, language);
+    const enrichedPayment = {
+      ...payment,
+      loan: loan ? { ...loan, payments: loan.payments || [] } : payment.loan,
+    };
+    printSinglePaymentReceiptPDF(enrichedPayment, session?.shop || null, language);
   };
 
   useEffect(() => {
-    loadLoan();
+    loadLoan(true);
 
     const handleRealtimeUpdate = (e: any) => {
-      if (!e.detail?.table || e.detail.table === 'loans' || e.detail.table === 'payments' || e.detail.table === 'loan_disbursements') {
-        loadLoan();
+      if (!e.detail?.table || e.detail.table === 'loans' || e.detail.table === 'payments' || e.detail.table === 'loan_disbursements' || e.detail.table === 'shops') {
+        loadLoan(false);
       }
     };
 
     if (typeof window !== 'undefined') {
       window.addEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
-      window.addEventListener('suvarnaloan-db-update', () => loadLoan());
+      window.addEventListener('suvarnaloan-db-update', () => loadLoan(false));
     }
 
     return () => {
       if (typeof window !== 'undefined') {
         window.removeEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
-        window.removeEventListener('suvarnaloan-db-update', () => loadLoan());
+        window.removeEventListener('suvarnaloan-db-update', () => loadLoan(false));
       }
     };
   }, [resolvedParams.id]);

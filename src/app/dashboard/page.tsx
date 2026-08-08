@@ -81,9 +81,10 @@ export default function DashboardPage() {
   const [calcKarat, setCalcKarat] = useState<string>('22K (91.6%)');
   const [calcResult, setCalcResult] = useState<any>(null);
 
-  const loadData = async (bypassCache = false) => {
-    if (bypassCache) clearDbCache();
-    setLoading(true);
+  const loadData = async (isInitial = false) => {
+    if (isInitial && !metrics) {
+      setLoading(true);
+    }
     try {
       const session = getSessionUser();
       const activeShopId = session?.user?.shop_id || session?.shop?.id || '';
@@ -105,35 +106,30 @@ export default function DashboardPage() {
       setGoldItems(goldList);
     } catch (err) {
       console.error('Failed to load dashboard metrics:', err);
-      toast.error('Unable to synchronize live dashboard data');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadData();
+    // Initial mount load
+    loadData(true);
 
-    // Listen to real-time custom event
+    // Silently update dashboard on real-time events without flickering or skeleton screen
     const handleDbUpdate = () => {
-      loadData(true);
+      loadData(false);
     };
 
     if (typeof window !== 'undefined') {
       window.addEventListener('suvarnaloan-db-update', handleDbUpdate);
+      window.addEventListener('suvarnaloan-realtime-update', handleDbUpdate);
     }
-
-    const session = getSessionUser();
-    const activeShopId = session?.user?.shop_id || session?.shop?.id || '';
-    const unsubscribe = setupRealtimeSync(activeShopId, () => {
-      loadData(true);
-    });
 
     return () => {
       if (typeof window !== 'undefined') {
         window.removeEventListener('suvarnaloan-db-update', handleDbUpdate);
+        window.removeEventListener('suvarnaloan-realtime-update', handleDbUpdate);
       }
-      unsubscribe();
     };
   }, []);
 

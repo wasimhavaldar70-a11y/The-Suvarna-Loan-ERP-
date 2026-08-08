@@ -174,6 +174,7 @@ export async function onboardNewTenant(
       license_number: input.licenseNumber?.trim() || '',
       gold_rate_24k: input.goldRate24k || 7650,
       gold_rate_22k: input.goldRate22k || 7010,
+      gold_rate_20k: Math.round((input.goldRate24k || 7650) * (20 / 24)),
       gold_rate_18k: input.goldRate18k || 5738,
       silver_rate_1kg: silver1kg,
       silver_rate_per_gram: Number((silver1kg / 1000).toFixed(2)),

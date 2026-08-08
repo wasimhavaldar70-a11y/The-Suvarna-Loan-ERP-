@@ -20,39 +20,69 @@ export default function ValuationPage() {
   const { dict, language, isMarathi } = useTranslation();
 
   const [metalType, setMetalType] = useState<'Gold' | 'Silver'>('Gold');
-  const [rate24k, setRate24k] = useState(7650);
-  const [silverRatePerGram, setSilverRatePerGram] = useState(95);
+  const [rate24k, setRate24k] = useState<number | string>(7650);
+  const [silverRatePerGram, setSilverRatePerGram] = useState<number | string>(95);
   const [grossWeight, setGrossWeight] = useState<number | string>('');
   const [stoneWeight, setStoneWeight] = useState<number | string>('');
   const [karat, setKarat] = useState('22K (91.6%)');
   const [ltv, setLtv] = useState(75);
   const [loadingLive, setLoadingLive] = useState(false);
 
-  useEffect(() => {
+  const loadShopRates = () => {
     const session = getSessionUser();
     const activeShopId = session?.user?.shop_id || session?.shop?.id || '';
     if (!activeShopId) return;
-    db.getShop(activeShopId).then((s) => {
-      if (s) {
-        if (s.use_live_rates) {
-          fetchLiveMetalRates().then((live) => {
-            setRate24k(live.gold24kPerGram);
-            setSilverRatePerGram(live.silverPerGram);
-          });
-        } else {
-          setRate24k(s.gold_rate_24k || 7650);
-          setSilverRatePerGram(s.silver_rate_per_gram || Number(((s.silver_rate_1kg || 95000) / 1000).toFixed(2)));
-        }
-      }
+    db.getShopGoldRates(activeShopId).then((rates) => {
+      setRate24k(rates.gold24k);
+      setSilverRatePerGram(rates.silverPerGram);
     });
+  };
+
+  useEffect(() => {
+    loadShopRates();
+
+    const handleRealtimeUpdate = (e: any) => {
+      if (!e.detail?.table || e.detail.table === 'shops') {
+        loadShopRates();
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+      window.addEventListener('suvarnaloan-db-update', loadShopRates);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+        window.removeEventListener('suvarnaloan-db-update', loadShopRates);
+      }
+    };
   }, []);
 
   const handleSyncLive = async () => {
     setLoadingLive(true);
-    const live = await fetchLiveMetalRates(true);
-    setRate24k(live.gold24kPerGram);
-    setSilverRatePerGram(live.silverPerGram);
-    setLoadingLive(false);
+    try {
+      const session = getSessionUser();
+      const activeShopId = session?.user?.shop_id || session?.shop?.id || '';
+      const live = await fetchLiveMetalRates(true);
+      setRate24k(live.gold24kPerGram);
+      setSilverRatePerGram(live.silverPerGram);
+      if (activeShopId) {
+        await db.updateShopGoldRates(
+          activeShopId,
+          live.gold24kPerGram,
+          live.gold22kPerGram,
+          live.gold20kPerGram,
+          live.gold18kPerGram,
+          live.silver1kg
+        );
+      }
+    } catch (err) {
+      console.warn('Valuation live sync error:', err);
+    } finally {
+      setLoadingLive(false);
+    }
   };
 
   const result = calculateGoldValuation({
@@ -60,31 +90,35 @@ export default function ValuationPage() {
     grossWeightGrams: Number(grossWeight) || 0,
     stoneWeightGrams: Number(stoneWeight) || 0,
     purityKarat: karat,
-    goldRatePerGram24K: rate24k,
-    silverRatePerGram,
+    goldRatePerGram24K: Number(rate24k) || 7650,
+    silverRatePerGram: Number(silverRatePerGram) || 95,
     ltvPercentage: ltv,
   });
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 max-w-4xl mx-auto font-sans">
-        <div>
-          <h1 className="text-xl md:text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
-            <Calculator className="w-6 h-6 text-amber-600" />
-            <span>{isMarathi ? 'अचूक सोने व चांदी तारण मूल्यांकन कॅल्क्युलेटर' : 'Precision Gold & Silver Loan Valuation Engine'}</span>
-          </h1>
-          <p className="text-xs text-slate-500 font-medium">
-            {isMarathi
-              ? 'निव्वळ वजन, कॅरेट शुद्धता, बाजारभाव आणि कमाल कर्ज मर्यादा त्वरित काढा'
-              : 'Calculate net metal weight, purity grade adjustments, market value & maximum loan limit'
-            }
-          </p>
+      <div className="space-y-6 max-w-6xl mx-auto font-sans">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl md:text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+              <Calculator className="w-6 h-6 text-amber-600" />
+              <span>{isMarathi ? 'अचूक सोने व चांदी कर्ज मूल्यांकन इंजिन' : 'Precision Gold & Silver Loan Valuation Engine'}</span>
+            </h1>
+            <p className="text-xs text-slate-500 font-medium mt-1">
+              {isMarathi
+                ? 'बीआयएस (BIS) हॉलमार्किंग मानकांनुसार अचूक निव्वळ वजन, ७५% कमाल एलटीव्ही व कर्ज मर्यादा गणना'
+                : 'BIS hallmarking purity matrices, gross stone net weight appraisal, and RBI 75% LTV sanction ceilings'}
+            </p>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Controls */}
-          <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-4">
-            <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-3">
+        {/* Calculation Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Inputs Section */}
+          <div className="lg:col-span-1 bg-white rounded-2xl border border-slate-200/80 p-5 shadow-xs space-y-4">
+            <h3 className="text-xs font-extrabold text-slate-900 uppercase tracking-wider flex items-center gap-2">
+              <Scale className="w-4 h-4 text-amber-600" />
               {isMarathi ? 'मूल्यांकन घटक व मापदंड' : 'Valuation Parameters'}
             </h3>
 
@@ -142,7 +176,15 @@ export default function ValuationPage() {
               <input
                 type="number"
                 value={metalType === 'Gold' ? rate24k : silverRatePerGram}
-                onChange={(e) => metalType === 'Gold' ? setRate24k(Number(e.target.value)) : setSilverRatePerGram(Number(e.target.value))}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  const parsed = val === '' ? '' : Number(val);
+                  if (metalType === 'Gold') {
+                    setRate24k(parsed);
+                  } else {
+                    setSilverRatePerGram(parsed);
+                  }
+                }}
                 className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-amber-500"
               />
             </div>

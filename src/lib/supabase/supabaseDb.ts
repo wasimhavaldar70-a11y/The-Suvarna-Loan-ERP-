@@ -49,6 +49,12 @@ function getDbClient() {
 const processedRequestUuidSet = new Set<string>();
 const broadcastChannel = (typeof window !== 'undefined' && typeof BroadcastChannel !== 'undefined') ? new BroadcastChannel('suvarnaloan-sync') : null;
 
+let activeRealtimeChannel: any = null;
+
+export const setGlobalRealtimeChannel = (channel: any) => {
+  activeRealtimeChannel = channel;
+};
+
 const dbQueryCache = new Map<string, { data: any; expiresAt: number }>();
 const DEFAULT_CACHE_TTL = 30000; // 30 Seconds safe cache TTL
 
@@ -63,14 +69,14 @@ export const clearDbCache = (table?: string) => {
     }
   }
   // Invalidate dependent cached tables
-  if (table === 'loans' || table === 'payments' || table === 'gold_items' || table === 'customers' || table === 'loan_disbursements') {
+  if (table === 'shops' || table === 'loans' || table === 'payments' || table === 'gold_items' || table === 'customers' || table === 'loan_disbursements') {
     for (const key of dbQueryCache.keys()) {
-      if (key.includes('dashboard_metrics') || key.includes('disbursements')) {
+      if (key.includes('dashboard_metrics') || key.includes('disbursements') || key.includes('shop') || key.includes('loans') || key.includes('payments')) {
         dbQueryCache.delete(key);
       }
     }
   }
-  if (table === 'customers' || table === 'gold_items' || table === 'payments' || table === 'loan_disbursements') {
+  if (table === 'customers' || table === 'gold_items' || table === 'payments' || table === 'loan_disbursements' || table === 'shops') {
     for (const key of dbQueryCache.keys()) {
       if (key.includes('loans')) {
         dbQueryCache.delete(key);
@@ -79,10 +85,38 @@ export const clearDbCache = (table?: string) => {
   }
 };
 
-export const broadcastDbUpdate = (type: string) => {
+export const broadcastDbUpdate = (type: string, payload?: any) => {
   clearDbCache(type);
+  
+  // 1. Cross-tab local synchronization
   if (broadcastChannel) {
-    broadcastChannel.postMessage({ type: 'DB_UPDATE', table: type, timestamp: Date.now() });
+    try {
+      broadcastChannel.postMessage({ type: 'DB_UPDATE', table: type, timestamp: Date.now(), payload });
+    } catch {}
+  }
+
+  // 2. Cross-device Supabase Realtime WebSocket broadcast (Mobile ⇄ Computer ⇄ Tablet)
+  if (activeRealtimeChannel && typeof activeRealtimeChannel.send === 'function') {
+    try {
+      activeRealtimeChannel.send({
+        type: 'broadcast',
+        event: 'suvarnaloan_sync',
+        payload: {
+          table: type,
+          eventType: 'UPDATE',
+          timestamp: Date.now(),
+          payload,
+        },
+      });
+    } catch (e) {
+      console.warn('Supabase Realtime broadcast warning:', e);
+    }
+  }
+
+  // 3. Same-window React listeners
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('suvarnaloan-db-update', { detail: { table: type, payload } }));
+    window.dispatchEvent(new CustomEvent('suvarnaloan-realtime-update', { detail: { table: type, eventType: 'UPDATE', payload } }));
   }
 };
 
@@ -406,44 +440,221 @@ export const db = {
     return { success: true, message: `Password reset link generated for ${email}` };
   },
 
-  async updateShopGoldRates(shopId: string, gold24k: number, gold22k: number, gold20k: number = 6375, gold18k: number = 5738, silver1kg: number = 95000): Promise<boolean> {
-    const silverPerGram = Number((silver1kg / 1000).toFixed(2));
-    const shops = getStorageItem<Shop[]>('shops', []);
-    const idx = shops.findIndex(s => s.id === shopId);
-    if (idx !== -1) {
-      shops[idx].gold_rate_24k = gold24k;
-      shops[idx].gold_rate_22k = gold22k;
-      shops[idx].gold_rate_20k = gold20k;
-      shops[idx].gold_rate_18k = gold18k;
-      shops[idx].silver_rate_1kg = silver1kg;
-      shops[idx].silver_rate_per_gram = silverPerGram;
-      setStorageItem('shops', shops);
+  // ── Central Bullion Rate Service ───────────────────────────
+  async getCurrent24KGoldRate(shopId?: string): Promise<number> {
+    const session = getSessionUser();
+    const targetShopId = shopId || session?.shop?.id || session?.user?.shop_id || '';
+    if (!targetShopId) return 7650;
+
+    const shop = await this.getShop(targetShopId);
+    return shop?.gold_rate_24k || session?.shop?.gold_rate_24k || 7650;
+  },
+
+  async getShopGoldRates(shopId?: string): Promise<{
+    gold24k: number;
+    gold22k: number;
+    gold20k: number;
+    gold18k: number;
+    silver1kg: number;
+    silverPerGram: number;
+    useLiveRates: boolean;
+    lastSync?: string;
+  }> {
+    const session = getSessionUser();
+    const targetShopId = shopId || session?.shop?.id || session?.user?.shop_id || '';
+    
+    let shop: Shop | null = null;
+    if (targetShopId) {
+      shop = await this.getShop(targetShopId);
+    }
+    const current = shop || session?.shop;
+    const g24 = current?.gold_rate_24k || 7650;
+    const g22 = current?.gold_rate_22k || Math.round(g24 * 0.9166);
+    const g20 = current?.gold_rate_20k || Math.round(g24 * (20 / 24));
+    const g18 = current?.gold_rate_18k || Math.round(g24 * 0.75);
+    const s1kg = current?.silver_rate_1kg || 95000;
+    const sPerGram = current?.silver_rate_per_gram || Number((s1kg / 1000).toFixed(2));
+
+    return {
+      gold24k: g24,
+      gold22k: g22,
+      gold20k: g20,
+      gold18k: g18,
+      silver1kg: s1kg,
+      silverPerGram: sPerGram,
+      useLiveRates: current?.use_live_rates ?? true,
+      lastSync: current?.last_rate_sync_at,
+    };
+  },
+
+  async updateShopGoldRates(
+    shopId: string,
+    gold24k: number,
+    gold22k: number,
+    gold20k: number = 6375,
+    gold18k: number = 5738,
+    silver1kg: number = 95000
+  ): Promise<{ success: boolean; error?: string; rates?: any }> {
+    if (!shopId) {
+      return { success: false, error: 'Shop ID is required to update gold rates' };
     }
 
-    if (isRealSupabase && supabase) {
-      try {
-        const { error } = await supabase
-          .from('shops')
-          .update({
-            gold_rate_24k: gold24k,
-            gold_rate_22k: gold22k,
-            gold_rate_20k: gold20k,
-            gold_rate_18k: gold18k,
-            silver_rate_1kg: silver1kg,
-            silver_rate_per_gram: silverPerGram,
-          })
-          .eq('id', shopId);
+    const num24 = Number(gold24k);
+    if (isNaN(num24) || num24 <= 0) {
+      return { success: false, error: 'Valid 24K Gold Rate (greater than 0) is required' };
+    }
 
-        if (error) {
-          console.warn('Supabase updateShopGoldRates warning:', error.message);
+    const num22 = Number(gold22k) || Math.round(num24 * 0.9166);
+    const num20 = Number(gold20k) || Math.round(num24 * (20 / 24));
+    const num18 = Number(gold18k) || Math.round(num24 * 0.75);
+    const numSilver = Number(silver1kg) || 95000;
+    const silverPerGram = Number((numSilver / 1000).toFixed(2));
+    const nowIso = new Date().toISOString();
+
+    let dbUpdated = false;
+    let dbErrorMessage = '';
+
+    // 1. Primary: Update via Server-Side API Route with Service Role guarantee
+    if (typeof window !== 'undefined') {
+      try {
+        const res = await fetch('/api/shop/rates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            shop_id: shopId,
+            gold_rate_24k: num24,
+            gold_rate_22k: num22,
+            gold_rate_20k: num20,
+            gold_rate_18k: num18,
+            silver_rate_1kg: numSilver,
+            silver_rate_per_gram: silverPerGram,
+          }),
+        });
+
+        if (res.ok) {
+          const body = await res.json();
+          if (body.success) {
+            dbUpdated = true;
+          } else {
+            dbErrorMessage = body.error || 'Server rejected rate update';
+          }
+        } else {
+          const errBody = await res.json().catch(() => ({}));
+          dbErrorMessage = errBody.error || `Server returned status ${res.status}`;
         }
-      } catch (err) {
-        console.warn('Supabase updateShopGoldRates exception:', err);
+      } catch (err: any) {
+        console.warn('API /api/shop/rates fetch exception:', err);
+        dbErrorMessage = err?.message || 'Network error updating rates';
       }
     }
 
+    // 2. Direct Supabase client update fallback
+    if (!dbUpdated && isRealSupabase && supabase) {
+      try {
+        let { data, error } = await supabase
+          .from('shops')
+          .update({
+            gold_rate_24k: num24,
+            gold_rate_22k: num22,
+            gold_rate_20k: num20,
+            gold_rate_18k: num18,
+            silver_rate_1kg: numSilver,
+            silver_rate_per_gram: silverPerGram,
+            last_rate_sync_at: nowIso,
+            updated_at: nowIso,
+          })
+          .eq('id', shopId)
+          .select()
+          .single();
+
+        if (error && (error.message.includes('gold_rate_20k') || error.message.includes('schema cache'))) {
+          const retry = await supabase
+            .from('shops')
+            .update({
+              gold_rate_24k: num24,
+              gold_rate_22k: num22,
+              gold_rate_18k: num18,
+              silver_rate_1kg: numSilver,
+              silver_rate_per_gram: silverPerGram,
+              last_rate_sync_at: nowIso,
+              updated_at: nowIso,
+            })
+            .eq('id', shopId)
+            .select()
+            .single();
+          data = retry.data;
+          error = retry.error;
+        }
+
+        if (!error && data) {
+          dbUpdated = true;
+        } else if (error) {
+          dbErrorMessage = error.message;
+          console.error('Supabase updateShopGoldRates error:', error.message);
+        }
+      } catch (err: any) {
+        dbErrorMessage = err?.message || 'Supabase client exception';
+        console.error('Supabase updateShopGoldRates exception:', err);
+      }
+    }
+
+    // If both database update attempts failed, report actual error to user
+    if (!dbUpdated && isRealSupabase) {
+      console.error('CRITICAL: Database failed to persist Live 24K Gold Rate:', dbErrorMessage);
+      return {
+        success: false,
+        error: `Failed to update Live 24K Gold Rate in central database: ${dbErrorMessage || 'Database rejected write'}`,
+      };
+    }
+
+    // 3. Update local storage & active session only upon verified database update
+    const shops = getStorageItem<Shop[]>('shops', []);
+    const idx = shops.findIndex(s => s.id === shopId);
+    const updatedShopFields = {
+      gold_rate_24k: num24,
+      gold_rate_22k: num22,
+      gold_rate_20k: num20,
+      gold_rate_18k: num18,
+      silver_rate_1kg: numSilver,
+      silver_rate_per_gram: silverPerGram,
+      last_rate_sync_at: nowIso,
+    };
+
+    if (idx !== -1) {
+      shops[idx] = { ...shops[idx], ...updatedShopFields };
+      setStorageItem('shops', shops);
+    }
+
+    const session = getSessionUser();
+    if (session && session.shop && session.shop.id === shopId) {
+      const synchedShop: Shop = {
+        ...session.shop,
+        ...updatedShopFields,
+      };
+      setSessionUser({
+        ...session,
+        shop: synchedShop,
+      });
+    }
+
+    // Clear stale cached queries
+    clearDbCache('shops');
+    clearDbCache('dashboard_metrics');
+
+    // Broadcast update across all tabs and Supabase Realtime channels
     broadcastDbUpdate('shops');
-    return true;
+
+    return {
+      success: true,
+      rates: {
+        gold_rate_24k: num24,
+        gold_rate_22k: num22,
+        gold_rate_20k: num20,
+        gold_rate_18k: num18,
+        silver_rate_1kg: numSilver,
+        silver_rate_per_gram: silverPerGram,
+      },
+    };
   },
 
   async updateShopLiveRateMode(shopId: string, useLiveRates: boolean): Promise<boolean> {
@@ -453,6 +664,17 @@ export const db = {
       shops[idx].use_live_rates = useLiveRates;
       shops[idx].last_rate_sync_at = new Date().toISOString();
       setStorageItem('shops', shops);
+    }
+
+    if (typeof window !== 'undefined') {
+      fetch('/api/shop/rates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          shop_id: shopId,
+          use_live_rates: useLiveRates,
+        }),
+      }).catch(err => console.warn('updateShopLiveRateMode API warning:', err));
     }
 
     if (isRealSupabase && supabase) {
@@ -469,6 +691,7 @@ export const db = {
       }
     }
 
+    clearDbCache('shops');
     broadcastDbUpdate('shops');
     return true;
   },
@@ -1727,17 +1950,36 @@ export const db = {
   },
 
   // ── Payments API ──────────────────────────────────────────
-  async getPayments(shopId: string): Promise<Payment[]> {
+  async getPayments(shopId: string, forceFresh: boolean = false): Promise<Payment[]> {
     if (!shopId) return [];
 
     const cacheKey = `payments_${shopId}`;
-    const cached = dbQueryCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.data;
+    if (!forceFresh) {
+      const cached = dbQueryCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        return cached.data;
+      }
     }
 
     let cloudPayments: Payment[] = [];
-    if (isRealSupabase && supabase) {
+
+    // 1. Primary: Query via Server-side /api/payments with Service Role guarantee
+    if (typeof window !== 'undefined') {
+      try {
+        const res = await fetch(`/api/payments?shop_id=${encodeURIComponent(shopId)}`);
+        if (res.ok) {
+          const body = await res.json();
+          if (Array.isArray(body.payments)) {
+            cloudPayments = body.payments as Payment[];
+          }
+        }
+      } catch (err) {
+        console.warn('API /api/payments fetch warning:', err);
+      }
+    }
+
+    // 2. Secondary: Direct Supabase client query
+    if (cloudPayments.length === 0 && isRealSupabase && supabase) {
       try {
         const { data, error } = await supabase
           .from('payments')
@@ -1748,7 +1990,7 @@ export const db = {
           cloudPayments = data as Payment[];
         }
       } catch (err) {
-        console.warn('getPayments fetch warning:', err);
+        console.warn('getPayments Supabase direct warning:', err);
       }
     }
 
@@ -1788,10 +2030,15 @@ export const db = {
 
   async recordPayment(paymentData: Omit<Payment, 'id' | 'created_at'>): Promise<Payment> {
     const existingLocalPmts = getStorageItem<Payment[]>('payments', DEFAULT_PAYMENTS);
+    const loans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS);
+    const targetLoan = loans.find((l) => l.id === paymentData.loan_id || l.loan_number === paymentData.loan_id);
+
+    const session = getSessionUser();
+    const targetShopId = paymentData.shop_id || targetLoan?.shop_id || session?.shop?.id || session?.user?.shop_id || '';
 
     let pmtId = (paymentData as any).id;
     if (!pmtId || existingLocalPmts.some(p => p.id === pmtId)) {
-      pmtId = await generateNextPaymentId(paymentData.shop_id);
+      pmtId = await generateNextPaymentId(targetShopId);
       let attempt = 1;
       let safeId = pmtId;
       while (existingLocalPmts.some(p => p.id === safeId)) {
@@ -1809,27 +2056,85 @@ export const db = {
     const newPmt: Payment = {
       ...paymentData,
       id: pmtId,
+      shop_id: targetShopId,
+      loan_id: targetLoan?.id || paymentData.loan_id,
       receipt_number: receiptNum,
       created_at: new Date().toISOString(),
     };
 
     let resultPmt = newPmt;
+    let savedToCloud = false;
 
-    if (isRealSupabase && supabase) {
+    // 1. Primary: Save via Server-Side API Route with Service Role guarantee
+    let lastErrorMsg = '';
+    if (typeof window !== 'undefined') {
       try {
-        const { loan, version, request_uuid, ...dbPayload } = newPmt as any;
-        const { data, error } = await supabase.from('payments').insert(dbPayload).select().single();
-        if (!error && data) {
-          resultPmt = data as Payment;
-        } else if (error) {
-          console.warn('Supabase recordPayment insert warning:', error.message);
+        const res = await fetch('/api/payments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            id: newPmt.id,
+            shop_id: targetShopId,
+            loan_id: targetLoan?.id || paymentData.loan_id,
+            amount: newPmt.amount,
+            payment_type: newPmt.payment_type,
+            payment_date: newPmt.payment_date,
+            payment_method: newPmt.payment_method,
+            receipt_number: newPmt.receipt_number,
+            notes: newPmt.notes,
+            disbursement_id: paymentData.disbursement_id,
+            disbursement_number: paymentData.disbursement_number,
+          }),
+        });
+
+        if (res.ok) {
+          const body = await res.json();
+          if (body.success && body.payment) {
+            resultPmt = body.payment as Payment;
+            savedToCloud = true;
+          } else if (body.error) {
+            lastErrorMsg = body.error;
+          }
+        } else {
+          try {
+            const errBody = await res.json();
+            if (errBody?.error) lastErrorMsg = errBody.error;
+          } catch {}
         }
-      } catch (err) {
-        console.warn('Supabase recordPayment exception:', err);
+      } catch (err: any) {
+        console.warn('API /api/payments POST exception:', err);
+        lastErrorMsg = err?.message || 'Network error contacting payment server';
       }
     }
 
-    // Always update local cache & broadcast for instant UI reactivity
+    // 2. Direct Supabase client update fallback
+    if (!savedToCloud && isRealSupabase && supabase) {
+      try {
+        const { loan, version, request_uuid, ...dbPayload } = newPmt as any;
+        dbPayload.shop_id = targetShopId;
+        dbPayload.loan_id = targetLoan?.id || paymentData.loan_id;
+        const { data, error } = await supabase.from('payments').insert(dbPayload).select().single();
+        if (!error && data) {
+          resultPmt = { ...newPmt, ...(data as any) };
+          savedToCloud = true;
+        } else if (error) {
+          console.warn('Supabase recordPayment insert warning:', error.message);
+          lastErrorMsg = error.message;
+        }
+      } catch (err: any) {
+        console.warn('Supabase recordPayment exception:', err);
+        lastErrorMsg = err?.message || lastErrorMsg;
+      }
+    }
+
+    // CRITICAL: Strict Database Persistence Guarantee (Phase 6 & Phase 8)
+    // Never show false payment success or update balances if central database insert failed!
+    if (!savedToCloud) {
+      console.error('[recordPayment] Central database write failed:', lastErrorMsg);
+      throw new Error(`Database persistence failed: ${lastErrorMsg || 'Could not insert record into central payments table.'}`);
+    }
+
+    // Authoritative local cache update from confirmed database record
     const pmts = getStorageItem<Payment[]>('payments', DEFAULT_PAYMENTS);
     const existingIdx = pmts.findIndex((p) => p.id === resultPmt.id);
     if (existingIdx !== -1) {
@@ -1838,10 +2143,11 @@ export const db = {
       pmts.unshift(resultPmt);
     }
     setStorageItem('payments', pmts);
+    if (targetShopId) {
+      setStorageItem('payments', pmts, targetShopId);
+    }
 
-    // Update target loan in local storage
-    const loans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS);
-    const targetLoan = loans.find((l) => l.id === paymentData.loan_id || l.loan_number === paymentData.loan_id);
+    // Update target loan in local storage and central database
     if (targetLoan) {
       if (!targetLoan.payments) targetLoan.payments = [];
       const pIdx = targetLoan.payments.findIndex(p => p.id === resultPmt.id);
@@ -1858,12 +2164,14 @@ export const db = {
         targetLoan.due_date,
         targetLoan.payments,
         targetLoan.repayment_model || 'Bullet Repayment',
-        targetLoan.tenure_months || 12
+        targetLoan.tenure_months || 12,
+        targetLoan.disbursements || []
       );
 
       targetLoan.total_interest_paid = fin.totalInterestPaid;
       targetLoan.accrued_interest = fin.netAccruedInterest;
       targetLoan.total_balance_due = fin.totalBalanceDue;
+      targetLoan.total_principal_outstanding = fin.remainingPrincipal;
 
       // Also update target disbursement if payment is targeted to a specific tranche
       if (paymentData.disbursement_id) {
@@ -1882,7 +2190,24 @@ export const db = {
           if (disbFin.totalBalanceDue <= 0 || paymentData.payment_type === 'Full Settlement') {
             targetDisb.status = 'Settled';
           }
-          setStorageItem('loan_disbursements', localDisbs, targetDisb.shop_id);
+          setStorageItem('loan_disbursements', localDisbs);
+          if (targetDisb.shop_id) {
+            setStorageItem('loan_disbursements', localDisbs, targetDisb.shop_id);
+          }
+
+          if (isRealSupabase && supabase) {
+            supabase
+              .from('loan_disbursements')
+              .update({
+                principal_outstanding: targetDisb.principal_outstanding,
+                total_interest_paid: targetDisb.total_interest_paid,
+                status: targetDisb.status,
+              })
+              .eq('id', targetDisb.id)
+              .then(({ error }) => {
+                if (error) console.warn('Supabase tranche update warning:', error);
+              });
+          }
           broadcastDbUpdate('loan_disbursements');
         }
       }
@@ -1894,36 +2219,36 @@ export const db = {
         targetLoan.total_principal_outstanding = 0;
         targetLoan.total_balance_due = 0;
         targetLoan.accrued_interest = 0;
+      }
 
-        if (isRealSupabase && supabase) {
-          try {
-            await supabase
-              .from('loans')
-              .update({
-                status: 'Closed',
-                closed_date: new Date().toISOString().split('T')[0],
-              })
-              .or(`id.eq.${targetLoan.id},loan_number.eq.${targetLoan.id}`);
-
-            await supabase
-              .from('loan_disbursements')
-              .update({
-                status: 'Settled',
-                principal_outstanding: 0,
-              })
-              .eq('loan_id', targetLoan.id);
-          } catch (err) {
-            console.warn('Supabase loan closure sync warning:', err);
-          }
+      // Persist updated loan financials directly to central Supabase loans table
+      if (isRealSupabase && supabase) {
+        try {
+          await supabase
+            .from('loans')
+            .update({
+              total_interest_paid: fin.totalInterestPaid,
+              accrued_interest: isFullyClosed ? 0 : fin.netAccruedInterest,
+              total_balance_due: isFullyClosed ? 0 : fin.totalBalanceDue,
+              total_principal_outstanding: isFullyClosed ? 0 : fin.remainingPrincipal,
+              status: isFullyClosed ? 'Closed' : targetLoan.status,
+              ...(isFullyClosed ? { closed_date: new Date().toISOString().split('T')[0] } : {}),
+            })
+            .or(`id.eq.${targetLoan.id},loan_number.eq.${targetLoan.id}`);
+        } catch (err) {
+          console.warn('Supabase loan financial update warning:', err);
         }
       }
+
       setStorageItem('loans', loans);
-      setStorageItem('loans', loans, targetLoan.shop_id);
+      if (targetLoan.shop_id) {
+        setStorageItem('loans', loans, targetLoan.shop_id);
+      }
     }
 
     clearDbCache();
-    broadcastDbUpdate('payments');
-    broadcastDbUpdate('loans');
+    broadcastDbUpdate('payments', resultPmt);
+    broadcastDbUpdate('loans', targetLoan);
     broadcastDbUpdate('loan_disbursements');
     return resultPmt;
   },

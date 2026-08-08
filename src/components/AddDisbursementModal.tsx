@@ -52,13 +52,33 @@ export function AddDisbursementModal({
       // Fetch live gold rate from shop
       const session = getSessionUser();
       const activeShopId = loan.shop_id || session?.user?.shop_id || session?.shop?.id || '';
-      if (activeShopId) {
-        db.getShop(activeShopId).then((shop) => {
-          if (shop && shop.gold_rate_24k) {
-            setGoldRate24k(shop.gold_rate_24k);
-          }
-        });
+      const syncRates = () => {
+        if (activeShopId) {
+          db.getShopGoldRates(activeShopId).then((rates) => {
+            setGoldRate24k(rates.gold24k);
+          });
+        }
+      };
+
+      syncRates();
+
+      const handleRealtimeUpdate = (e: any) => {
+        if (!e.detail?.table || e.detail.table === 'shops') {
+          syncRates();
+        }
+      };
+
+      if (typeof window !== 'undefined') {
+        window.addEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+        window.addEventListener('suvarnaloan-db-update', syncRates);
       }
+
+      return () => {
+        if (typeof window !== 'undefined') {
+          window.removeEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+          window.removeEventListener('suvarnaloan-db-update', syncRates);
+        }
+      };
     }
   }, [loan, isOpen, isMarathi]);
 

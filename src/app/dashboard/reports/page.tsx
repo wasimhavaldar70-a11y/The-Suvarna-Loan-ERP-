@@ -29,7 +29,7 @@ import {
   PieChart,
 } from 'lucide-react';
 import DashboardLayout from '../../../components/DashboardLayout';
-import { db } from '../../../lib/supabase/supabaseDb';
+import { db, clearDbCache } from '../../../lib/supabase/supabaseDb';
 import { getSessionUser } from '../../../lib/supabase/client';
 import { DashboardMetrics, Loan, Payment, Shop } from '../../../types';
 import { formatCurrency, formatDate, formatWeight } from '../../../lib/utils';
@@ -65,10 +65,29 @@ export default function ReportsPage() {
 
   useEffect(() => {
     loadData();
+
+    const handleRealtimeUpdate = (e: any) => {
+      if (!e.detail?.table || e.detail.table === 'loans' || e.detail.table === 'payments' || e.detail.table === 'loan_disbursements' || e.detail.table === 'shops') {
+        loadData();
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+      window.addEventListener('suvarnaloan-db-update', () => loadData());
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+        window.removeEventListener('suvarnaloan-db-update', () => loadData());
+      }
+    };
   }, []);
 
   const loadData = async () => {
     setLoading(true);
+    clearDbCache();
     const session = getSessionUser();
     const activeShopId = session?.user?.shop_id || session?.shop?.id || '';
     if (!activeShopId) {

@@ -66,8 +66,10 @@ export default function CustomersPage() {
     return session?.user?.shop_id || session?.shop?.id || '';
   };
 
-  const loadCustomers = async () => {
-    setLoading(true);
+  const loadCustomers = async (isInitial = false) => {
+    if (isInitial && customers.length === 0) {
+      setLoading(true);
+    }
     const shopId = getActiveShopId();
     const data = await db.getCustomers(shopId);
     setCustomers(data);
@@ -75,7 +77,25 @@ export default function CustomersPage() {
   };
 
   useEffect(() => {
-    loadCustomers();
+    loadCustomers(true);
+
+    const handleRealtimeUpdate = (e: any) => {
+      if (!e.detail?.table || e.detail.table === 'customers' || e.detail.table === 'loans') {
+        loadCustomers(false);
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+      window.addEventListener('suvarnaloan-db-update', () => loadCustomers(false));
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+        window.removeEventListener('suvarnaloan-db-update', () => loadCustomers(false));
+      }
+    };
   }, []);
 
   const handleKeyDownForm = (e: React.KeyboardEvent) => {

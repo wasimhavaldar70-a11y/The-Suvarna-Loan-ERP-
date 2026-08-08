@@ -923,7 +923,17 @@ export function generateSinglePaymentReceiptHTML(payment: Payment, shop?: Shop |
   const isMr = lang === 'mr';
   const s = shop || DEFAULT_SHOP_INFO;
 
-  const loan = payment.loan;
+  let loan = payment.loan;
+  if (!loan && typeof window !== 'undefined') {
+    try {
+      const stored = localStorage.getItem('sl_shared_loans') || localStorage.getItem('sl_loans') || localStorage.getItem(`sl_${payment.shop_id}_loans`);
+      if (stored) {
+        const parsedLoans: Loan[] = JSON.parse(stored);
+        loan = parsedLoans.find(l => l.id === payment.loan_id || l.loan_number === payment.loan_id);
+      }
+    } catch (e) {}
+  }
+
   const custName = loan?.customer?.full_name || (payment as any).customer_name || (isMr ? 'कर्जदार ग्राहक' : 'Borrower Customer');
   const custMobile = loan?.customer?.mobile_number || (payment as any).customer_mobile || 'N/A';
   const custAddress = loan?.customer?.address || (isMr ? 'स्थानिक पत्ता' : 'Local Address');
@@ -933,17 +943,44 @@ export function generateSinglePaymentReceiptHTML(payment: Payment, shop?: Shop |
   const netWeight = loan?.gold_item?.net_weight || 0;
   const purity = loan?.gold_item?.purity || '22K (91.6%)';
 
-  // 1. Disbursed Amount
-  const rawDisbursed = Number(loan?.total_disbursed || loan?.loan_amount || (payment as any).disbursed_amount || 0);
-  const disbursedAmount = rawDisbursed > 0 ? rawDisbursed : Number(payment.amount || 0);
+  // 1. Disbursed Amount - MUST NEVER BE OVERWRITTEN BY PAYMENT AMOUNT
+  let disbursedAmount = Number(loan?.total_disbursed || loan?.loan_amount || 0);
+  if (disbursedAmount <= 0 && loan?.disbursements && loan.disbursements.length > 0) {
+    disbursedAmount = loan.disbursements.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+  }
+  if (disbursedAmount <= 0) {
+    disbursedAmount = Number((payment as any).disbursed_amount || (payment as any).loan_amount || (payment as any).original_loan_amount || 0);
+  }
+  if (disbursedAmount <= 0) {
+    disbursedAmount = Number(payment.amount || 0);
+  }
 
   // 2. Current Payment Amount
   const paymentAmount = Number(payment.amount || 0);
 
-  // 3. Payments calculation & ordering
-  const allLoanPayments: Payment[] = Array.isArray(loan?.payments) && loan.payments.length > 0
-    ? loan.payments
-    : [payment];
+  // 3. Complete Historical Payments calculation & ordering
+  let allLoanPayments: Payment[] = Array.isArray(loan?.payments) && loan.payments.length > 0
+    ? [...loan.payments]
+    : [];
+
+  if (typeof window !== 'undefined') {
+    try {
+      const storedPmts = localStorage.getItem('sl_shared_payments') || localStorage.getItem('sl_payments') || localStorage.getItem(`sl_${payment.shop_id}_payments`);
+      if (storedPmts) {
+        const parsedPmts: Payment[] = JSON.parse(storedPmts);
+        const matchPmts = parsedPmts.filter(p => p.loan_id === payment.loan_id || (loan && (p.loan_id === loan.id || p.loan_id === loan.loan_number)));
+        matchPmts.forEach(p => {
+          if (!allLoanPayments.some(ap => ap.id === p.id || (p.receipt_number && ap.receipt_number === p.receipt_number))) {
+            allLoanPayments.push(p);
+          }
+        });
+      }
+    } catch (e) {}
+  }
+
+  if (!allLoanPayments.some(p => p.id === payment.id || (payment.receipt_number && p.receipt_number === payment.receipt_number))) {
+    allLoanPayments.push(payment);
+  }
 
   // Sort chronological
   const sortedPayments = [...allLoanPayments].sort((a, b) => {
@@ -959,11 +996,17 @@ export function generateSinglePaymentReceiptHTML(payment: Payment, shop?: Shop |
   // 4. Total Amount Paid Till Date
   const totalPaidTillDate = paymentsUpToThis.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-  // 5. Remaining Outstanding Amount
+  // 5. Total Principal Repaid Till Date
+  const totalPrincipalPaid = paymentsUpToThis.reduce((sum, p) => {
+    const pAmt = Number(p.amount) || 0;
+    return sum + (p.payment_type === 'Interest Payment' ? 0 : pAmt);
+  }, 0);
+
+  // 6. Remaining Outstanding Amount
   const isFullSettlement = (payment.payment_type || '').toLowerCase().includes('full settlement') || (payment.payment_type || '').toLowerCase().includes('closure');
   const remainingOutstanding = isFullSettlement
     ? 0
-    : Math.max(0, disbursedAmount - totalPaidTillDate);
+    : Math.max(0, disbursedAmount - totalPrincipalPaid);
 
   const isClosed = remainingOutstanding <= 0 || isFullSettlement;
 
@@ -1126,14 +1169,20 @@ export function generateSinglePaymentReceiptHTML(payment: Payment, shop?: Shop |
       <tbody>
         ${(() => {
           let runningTotal = 0;
-          return paymentsUpToThis.map((p) => {
+          let runningPrincipal = 0;
+          return paymentsUpToThis.map((p, idx) => {
             const pAmt = Number(p.amount) || 0;
             runningTotal += pAmt;
-            const pRemaining = isFullSettlement && p.id === payment.id ? 0 : Math.max(0, disbursedAmount - runningTotal);
+            if (p.payment_type !== 'Interest Payment') {
+              runningPrincipal += pAmt;
+            }
+            const pRemaining = (isFullSettlement && (p.id === payment.id || idx === paymentsUpToThis.length - 1))
+              ? 0
+              : Math.max(0, disbursedAmount - runningPrincipal);
             const isCurrent = p.id === payment.id || p.receipt_number === payment.receipt_number;
             return `
               <tr class="${isCurrent ? 'current-row' : ''}">
-                <td style="font-family: monospace; font-weight: 700;">${p.receipt_number || 'REC-0001'}</td>
+                <td style="font-family: monospace; font-weight: 700;">${p.receipt_number || `REC-2026-${(idx + 1).toString().padStart(4, '0')}`}</td>
                 <td>${formatDate(p.payment_date)}</td>
                 <td><strong>${p.payment_type}</strong></td>
                 <td>${p.payment_method}</td>

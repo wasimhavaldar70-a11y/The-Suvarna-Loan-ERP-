@@ -57,11 +57,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const [loading, setLoading] = useState(true);
   const [rateModalOpen, setRateModalOpen] = useState(false);
 
-  // Rate inputs for live rate edit
-  const [rate24k, setRate24k] = useState(7650);
-  const [rate22k, setRate22k] = useState(7010);
-  const [rate20k, setRate20k] = useState(6375);
-  const [rate18k, setRate18k] = useState(5738);
+  // Rate inputs for live rate edit (supports string | number for smooth typing)
+  const [rate24k, setRate24k] = useState<number | string>(7650);
+  const [rate22k, setRate22k] = useState<number | string>(7010);
+  const [rate20k, setRate20k] = useState<number | string>(6375);
+  const [rate18k, setRate18k] = useState<number | string>(5738);
+  const [rateSilver1kg, setRateSilver1kg] = useState<number | string>(95000);
 
   const touchStartX = useRef<number | null>(null);
   const touchStartY = useRef<number | null>(null);
@@ -106,6 +107,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       setRate22k(initialShop.gold_rate_22k || 7010);
       setRate20k(initialShop.gold_rate_20k || Math.round(r24 * (20 / 24)));
       setRate18k(initialShop.gold_rate_18k || 5738);
+      setRateSilver1kg(initialShop.silver_rate_1kg || 95000);
 
       // Query latest database values asynchronously
       db.getShop(initialShop.id).then((freshShop) => {
@@ -116,6 +118,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           setRate22k(freshShop.gold_rate_22k || 7010);
           setRate20k(freshShop.gold_rate_20k || Math.round(fresh24 * (20 / 24)));
           setRate18k(freshShop.gold_rate_18k || 5738);
+          setRateSilver1kg(freshShop.silver_rate_1kg || 95000);
 
           setSessionUser({
             ...session,
@@ -133,17 +136,26 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     setLoading(false);
 
     const handleGlobalDataRefresh = async () => {
-      if (session.shop) {
-        const freshShop = await db.getShop(session.shop.id);
+      const activeSession = getSessionUser();
+      const targetShopId = activeSession?.shop?.id || activeSession?.user?.shop_id;
+      if (targetShopId) {
+        const freshShop = await db.getShop(targetShopId);
         if (freshShop) {
           setCurrentShop(freshShop);
-          setRate24k(freshShop.gold_rate_24k || 7650);
+          const fresh24 = freshShop.gold_rate_24k || 7650;
+          setRate24k(fresh24);
           setRate22k(freshShop.gold_rate_22k || 7010);
+          setRate20k(freshShop.gold_rate_20k || Math.round(fresh24 * (20 / 24)));
           setRate18k(freshShop.gold_rate_18k || 5738);
+          setRateSilver1kg(freshShop.silver_rate_1kg || 95000);
+
+          if (activeSession) {
+            setSessionUser({
+              ...activeSession,
+              shop: freshShop,
+            });
+          }
         }
-      }
-      if (typeof window !== 'undefined') {
-        window.dispatchEvent(new CustomEvent('suvarnaloan-db-update'));
       }
     };
 
@@ -154,6 +166,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
     if (typeof window !== 'undefined') {
       window.addEventListener('suvarnaloan-realtime-update', handleRealtimeEvent);
+      window.addEventListener('suvarnaloan-db-update', handleRealtimeEvent);
     }
 
     // BroadcastChannel (Same-Device Browser Tab Sync)
@@ -170,22 +183,25 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
     return () => {
       if (typeof window !== 'undefined') {
         window.removeEventListener('suvarnaloan-realtime-update', handleRealtimeEvent);
+        window.removeEventListener('suvarnaloan-db-update', handleRealtimeEvent);
       }
       if (channel) channel.close();
     };
   }, [router]);
 
-  // When Rate Modal is opened, ensure latest database values populate the fields
+  // When Rate Modal is opened, load current values ONCE without loop resets
   useEffect(() => {
-    if (rateModalOpen && currentShop) {
-      db.getShop(currentShop.id).then((freshShop) => {
-        if (freshShop) {
-          setCurrentShop(freshShop);
-          setRate24k(freshShop.gold_rate_24k || 7650);
-          setRate22k(freshShop.gold_rate_22k || 7010);
-          setRate18k(freshShop.gold_rate_18k || 5738);
-        }
-      });
+    if (rateModalOpen) {
+      const session = getSessionUser();
+      const s = session?.shop || currentShop;
+      if (s) {
+        const fresh24 = s.gold_rate_24k || 7650;
+        setRate24k(fresh24);
+        setRate22k(s.gold_rate_22k || 7010);
+        setRate20k(s.gold_rate_20k || Math.round(fresh24 * (20 / 24)));
+        setRate18k(s.gold_rate_18k || 5738);
+        setRateSilver1kg(s.silver_rate_1kg || 95000);
+      }
     }
   }, [rateModalOpen]);
 
@@ -203,19 +219,37 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const handleUpdateRates = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentShop) return;
-    const ok = await db.updateShopGoldRates(currentShop.id, rate24k, rate22k, rate20k, rate18k);
-    if (ok) {
+    const session = getSessionUser();
+    const targetShopId = currentShop?.id || session?.shop?.id || session?.user?.shop_id;
+    if (!targetShopId) return;
+
+    const num24 = Number(rate24k) || 7650;
+    const num22 = Number(rate22k) || Math.round(num24 * (22 / 24));
+    const num20 = Number(rate20k) || Math.round(num24 * (20 / 24));
+    const num18 = Number(rate18k) || Math.round(num24 * (18 / 24));
+    const numSilver = Number(rateSilver1kg) || 95000;
+    const silverPerGram = Number((numSilver / 1000).toFixed(2));
+
+    const res = await db.updateShopGoldRates(targetShopId, num24, num22, num20, num18, numSilver);
+    if (res.success) {
       const updatedShop: Shop = {
-        ...currentShop,
-        gold_rate_24k: rate24k,
-        gold_rate_22k: rate22k,
-        gold_rate_20k: rate20k,
-        gold_rate_18k: rate18k,
+        ...(currentShop || session?.shop || ({} as Shop)),
+        id: targetShopId,
+        gold_rate_24k: num24,
+        gold_rate_22k: num22,
+        gold_rate_20k: num20,
+        gold_rate_18k: num18,
+        silver_rate_1kg: numSilver,
+        silver_rate_per_gram: silverPerGram,
+        last_rate_sync_at: new Date().toISOString(),
       };
       setCurrentShop(updatedShop);
+      setRate24k(num24);
+      setRate22k(num22);
+      setRate20k(num20);
+      setRate18k(num18);
+      setRateSilver1kg(numSilver);
 
-      const session = getSessionUser();
       if (session) {
         setSessionUser({
           ...session,
@@ -223,10 +257,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         });
       }
 
-      toast.success(isMarathi ? "सराफा बाजारभाव यशस्वीरित्या अद्ययावत केले!" : "Live Gold Rates updated across ERP & Database!");
+      toast.success(isMarathi ? `सराफा बाजारभाव ₹${num24}/ग्रॅम अद्ययावत केले!` : `Live Gold Rates updated to ₹${num24.toLocaleString('en-IN')}/g!`);
       setRateModalOpen(false);
     } else {
-      toast.error(isMarathi ? "सराफा दर अद्ययावत करण्यात त्रुटी" : "Failed to update Gold Rates");
+      toast.error(res.error || (isMarathi ? "सराफा दर अद्ययावत करण्यात त्रुटी. कृपया पुन्हा प्रयत्न करा." : "Failed to update Live 24K Gold Rate. Please try again."));
     }
   };
 
@@ -663,67 +697,113 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
             <form onSubmit={handleUpdateRates} className="space-y-4">
               <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1">
-                  {dict.settings.rate24k}
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-800">
+                    {dict.settings.rate24k} (₹/gram)
+                  </label>
+                  <span className="text-[10px] text-amber-700 font-bold bg-amber-50 px-2 py-0.5 rounded-md border border-amber-200">
+                    99.9% Pure Gold
+                  </span>
+                </div>
                 <input
                   type="number"
+                  min="1000"
+                  step="1"
                   value={rate24k}
                   onChange={(e) => {
-                    const r = Number(e.target.value);
-                    setRate24k(r);
-                    setRate22k(Math.round(r * (22 / 24)));
-                    setRate20k(Math.round(r * (20 / 24)));
-                    setRate18k(Math.round(r * (18 / 24)));
+                    const val = e.target.value;
+                    setRate24k(val === '' ? '' : Number(val));
+                    const num = Number(val);
+                    if (num > 0) {
+                      setRate22k(Math.round(num * 0.9166));
+                      setRate20k(Math.round(num * (20 / 24)));
+                      setRate18k(Math.round(num * 0.75));
+                    }
                   }}
-                  className="w-full px-3 py-2 border rounded-xl font-bold text-slate-900 focus:ring-2 focus:ring-amber-500"
+                  placeholder="e.g. 7200"
+                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl font-black text-slate-950 text-base focus:ring-2 focus:ring-amber-500 focus:outline-none bg-amber-50/40"
                   required
                 />
               </div>
 
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">{isMarathi ? '२२ कॅरेट / ग्रॅम' : '22K / Gram'}</label>
+                  <label className="text-[10px] font-bold text-slate-700 block mb-1">
+                    {isMarathi ? '२२ कॅरेट (₹/g)' : '22K 916 (₹/g)'}
+                  </label>
                   <input
                     type="number"
+                    min="1000"
+                    step="1"
                     value={rate22k}
-                    onChange={(e) => setRate22k(Number(e.target.value))}
-                    className="w-full px-2 py-1.5 border rounded-lg text-xs font-bold"
+                    onChange={(e) => setRate22k(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="7010"
+                    className="w-full px-2.5 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">{isMarathi ? '२० कॅरेट / ग्रॅम' : '20K / Gram'}</label>
+                  <label className="text-[10px] font-bold text-slate-700 block mb-1">
+                    {isMarathi ? '२० कॅरेट (₹/g)' : '20K Hallmarked (₹/g)'}
+                  </label>
                   <input
                     type="number"
+                    min="1000"
+                    step="1"
                     value={rate20k}
-                    onChange={(e) => setRate20k(Number(e.target.value))}
-                    className="w-full px-2 py-1.5 border rounded-lg text-xs font-bold"
+                    onChange={(e) => setRate20k(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="6375"
+                    className="w-full px-2.5 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] font-bold text-slate-600 block mb-1">{isMarathi ? '१८ कॅरेट / ग्रॅम' : '18K / Gram'}</label>
+                  <label className="text-[10px] font-bold text-slate-700 block mb-1">
+                    {isMarathi ? '१८ कॅरेट (₹/g)' : '18K 750 (₹/g)'}
+                  </label>
                   <input
                     type="number"
+                    min="1000"
+                    step="1"
                     value={rate18k}
-                    onChange={(e) => setRate18k(Number(e.target.value))}
-                    className="w-full px-2 py-1.5 border rounded-lg text-xs font-bold"
+                    onChange={(e) => setRate18k(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="5738"
+                    className="w-full px-2.5 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
                   />
                 </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-bold text-slate-800">
+                    {isMarathi ? 'चांदी दर (₹ / किलो)' : 'Fine Silver Rate (₹ / 1 kg)'}
+                  </label>
+                  <span className="text-[10px] text-slate-500 font-bold">
+                    ₹{Number((Number(rateSilver1kg || 95000) / 1000).toFixed(2))}/g
+                  </span>
+                </div>
+                <input
+                  type="number"
+                  min="10000"
+                  step="100"
+                  value={rateSilver1kg}
+                  onChange={(e) => setRateSilver1kg(e.target.value === '' ? '' : Number(e.target.value))}
+                  placeholder="95000"
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                />
               </div>
 
               <div className="flex gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setRateModalOpen(false)}
-                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs"
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs transition-colors"
                 >
                   {dict.common.cancel}
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl font-black text-xs shadow-md"
+                  className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl font-black text-xs shadow-md transition-all active:scale-95"
                 >
-                  {dict.common.save}
+                  {isMarathi ? 'दर अद्ययावत करा' : 'Save & Update All Modules'}
                 </button>
               </div>
             </form>

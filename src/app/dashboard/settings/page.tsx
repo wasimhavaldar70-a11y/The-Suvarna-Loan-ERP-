@@ -35,7 +35,14 @@ export default function SettingsPage() {
   const [syncingLive, setSyncingLive] = useState(false);
   const [liveRatesInfo, setLiveRatesInfo] = useState<LiveMetalRates | null>(null);
 
-  useEffect(() => {
+  // Editable rate inputs for Settings page
+  const [rate24kInput, setRate24kInput] = useState<number | string>(7650);
+  const [rate22kInput, setRate22kInput] = useState<number | string>(7010);
+  const [rate20kInput, setRate20kInput] = useState<number | string>(6375);
+  const [rate18kInput, setRate18kInput] = useState<number | string>(5738);
+  const [silverRateInput, setSilverRateInput] = useState<number | string>(95000);
+
+  const loadSettingsData = () => {
     const session = getSessionUser();
     const activeShopId = session?.user?.shop_id || session?.shop?.id || '';
     if (!activeShopId) return;
@@ -48,6 +55,12 @@ export default function SettingsPage() {
         setAddress(s.address || '');
         setSilverRate1kg(s.silver_rate_1kg || 95000);
         setUseLiveRates(s.use_live_rates ?? true);
+        const f24 = s.gold_rate_24k || 7650;
+        setRate24kInput(f24);
+        setRate22kInput(s.gold_rate_22k || 7010);
+        setRate20kInput(s.gold_rate_20k || Math.round(f24 * (20 / 24)));
+        setRate18kInput(s.gold_rate_18k || 5738);
+        setSilverRateInput(s.silver_rate_1kg || 95000);
       }
     });
 
@@ -57,6 +70,28 @@ export default function SettingsPage() {
       const raw = localStorage.getItem('sl_audit_logs');
       if (raw) setAuditLogs(JSON.parse(raw));
     }
+  };
+
+  useEffect(() => {
+    loadSettingsData();
+
+    const handleRealtimeUpdate = (e: any) => {
+      if (!e.detail?.table || e.detail.table === 'shops') {
+        loadSettingsData();
+      }
+    };
+
+    if (typeof window !== 'undefined') {
+      window.addEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+      window.addEventListener('suvarnaloan-db-update', loadSettingsData);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+        window.removeEventListener('suvarnaloan-db-update', loadSettingsData);
+      }
+    };
   }, []);
 
   const handleSyncLiveRatesNow = async () => {
@@ -76,6 +111,11 @@ export default function SettingsPage() {
       await db.updateShopLiveRateMode(shop.id, true);
       setUseLiveRates(true);
       setSilverRate1kg(live.silver1kg);
+      setRate24kInput(live.gold24kPerGram);
+      setRate22kInput(live.gold22kPerGram);
+      setRate20kInput(live.gold20kPerGram);
+      setRate18kInput(live.gold18kPerGram);
+      setSilverRateInput(live.silver1kg);
       setShop((prev) =>
         prev
           ? {
@@ -114,11 +154,41 @@ export default function SettingsPage() {
     );
   };
 
+  const handleSaveBullionRates = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!shop?.id) return;
+    const num24 = Number(rate24kInput) || 7650;
+    const num22 = Number(rate22kInput) || Math.round(num24 * 0.9166);
+    const num20 = Number(rate20kInput) || Math.round(num24 * (20 / 24));
+    const num18 = Number(rate18kInput) || Math.round(num24 * 0.75);
+    const numSilver = Number(silverRateInput) || 95000;
+    const silverPerGram = Number((numSilver / 1000).toFixed(2));
+
+    const res = await db.updateShopGoldRates(shop.id, num24, num22, num20, num18, numSilver);
+    if (res.success) {
+      toast.success(
+        isMarathi
+          ? `सराफा बाजारभाव ₹${num24}/ग्रॅम सर्वत्र अद्ययावत केले!`
+          : `Updated Bullion Rates to ₹${num24.toLocaleString('en-IN')}/g across all ERP modules!`
+      );
+    } else {
+      toast.error(res.error || (isMarathi ? 'सराफा दर अद्ययावत करण्यात त्रुटी. कृपया पुन्हा प्रयत्न करा.' : 'Failed to update Live 24K Gold Rate. Please try again.'));
+    }
+  };
+
   const handleSaveSettings = async (e: React.FormEvent) => {
     e.preventDefault();
     if (shop?.id) {
-      const g24 = shop.gold_rate_24k || 7650;
-      await db.updateShopGoldRates(shop.id, g24, shop.gold_rate_22k || 7010, shop.gold_rate_20k || Math.round(g24 * (20 / 24)), shop.gold_rate_18k || 5738, silverRate1kg);
+      const g24 = Number(rate24kInput) || shop.gold_rate_24k || 7650;
+      const g22 = Number(rate22kInput) || shop.gold_rate_22k || 7010;
+      const g20 = Number(rate20kInput) || shop.gold_rate_20k || Math.round(g24 * (20 / 24));
+      const g18 = Number(rate18kInput) || shop.gold_rate_18k || 5738;
+      const s1kg = Number(silverRateInput) || silverRate1kg;
+      const res = await db.updateShopGoldRates(shop.id, g24, g22, g20, g18, s1kg);
+      if (!res.success) {
+        toast.error(res.error || (isMarathi ? 'सराफा दर अद्ययावत करण्यात त्रुटी. कृपया पुन्हा प्रयत्न करा.' : 'Failed to update Live 24K Gold Rate. Please try again.'));
+        return;
+      }
     }
     toast.success(dict.messages.settingsSavedSuccess);
   };
@@ -266,27 +336,111 @@ export default function SettingsPage() {
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 text-xs">
-                <div className="p-3 bg-amber-50/60 border border-amber-200/60 rounded-xl">
-                  <div className="text-[10px] font-bold text-amber-900 uppercase">24K Pure Gold</div>
-                  <div className="text-base font-extrabold text-amber-950 mt-1">₹{shop?.gold_rate_24k || 7650}/g</div>
+              <form onSubmit={handleSaveBullionRates} className="space-y-3">
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-extrabold text-amber-900 uppercase">
+                      {isMarathi ? '२४ कॅरेट शुद्ध सोने (₹ / ग्रॅम)' : '24K Pure Gold (₹ / gram)'}
+                    </label>
+                    <span className="text-[10px] text-amber-700 font-bold">99.9% Pure</span>
+                  </div>
+                  <input
+                    type="number"
+                    min="1000"
+                    step="1"
+                    value={rate24kInput}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setRate24kInput(val === '' ? '' : Number(val));
+                      const num = Number(val);
+                      if (num > 0) {
+                        setRate22kInput(Math.round(num * 0.9166));
+                        setRate20kInput(Math.round(num * (20 / 24)));
+                        setRate18kInput(Math.round(num * 0.75));
+                      }
+                    }}
+                    placeholder="7200"
+                    className="w-full px-3 py-2 border border-amber-300 bg-amber-50/40 rounded-xl font-black text-slate-900 text-sm focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    required
+                  />
                 </div>
-                <div className="p-3 bg-amber-50/60 border border-amber-200/60 rounded-xl">
-                  <div className="text-[10px] font-bold text-amber-900 uppercase">22K Standard 916</div>
-                  <div className="text-base font-extrabold text-amber-950 mt-1">₹{shop?.gold_rate_22k || 7010}/g</div>
-                </div>
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                  <div className="text-[10px] font-bold text-slate-600 uppercase">20K Hallmarked</div>
-                  <div className="text-base font-extrabold text-slate-900 mt-1">₹{shop?.gold_rate_20k || 6375}/g</div>
-                </div>
-                <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl">
-                  <div className="text-[10px] font-bold text-slate-600 uppercase">18K Grade 750</div>
-                  <div className="text-base font-extrabold text-slate-900 mt-1">₹{shop?.gold_rate_18k || 5738}/g</div>
-                </div>
-              </div>
 
-              <div className="pt-2 flex flex-col gap-2">
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-700 block mb-1">
+                      {isMarathi ? '२२ कॅरेट (₹/g)' : '22K 916 (₹/g)'}
+                    </label>
+                    <input
+                      type="number"
+                      min="1000"
+                      step="1"
+                      value={rate22kInput}
+                      onChange={(e) => setRate22kInput(e.target.value === '' ? '' : Number(e.target.value))}
+                      placeholder="7010"
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-700 block mb-1">
+                      {isMarathi ? '२० कॅरेट (₹/g)' : '20K (₹/g)'}
+                    </label>
+                    <input
+                      type="number"
+                      min="1000"
+                      step="1"
+                      value={rate20kInput}
+                      onChange={(e) => setRate20kInput(e.target.value === '' ? '' : Number(e.target.value))}
+                      placeholder="6375"
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-slate-700 block mb-1">
+                      {isMarathi ? '१८ कॅरेट (₹/g)' : '18K 750 (₹/g)'}
+                    </label>
+                    <input
+                      type="number"
+                      min="1000"
+                      step="1"
+                      value={rate18kInput}
+                      onChange={(e) => setRate18kInput(e.target.value === '' ? '' : Number(e.target.value))}
+                      placeholder="5738"
+                      className="w-full px-2.5 py-1.5 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-bold text-slate-700">
+                      {isMarathi ? 'चांदीचा दर (₹ / १ किलो)' : 'Fine Silver Rate (₹ / 1 kg)'}
+                    </label>
+                    <span className="text-[10px] text-slate-500 font-bold">
+                      ₹{Number((Number(silverRateInput || 95000) / 1000).toFixed(2))}/g
+                    </span>
+                  </div>
+                  <input
+                    type="number"
+                    min="10000"
+                    step="100"
+                    value={silverRateInput}
+                    onChange={(e) => setSilverRateInput(e.target.value === '' ? '' : Number(e.target.value))}
+                    placeholder="95000"
+                    className="w-full px-3 py-2 border border-slate-300 rounded-xl text-xs font-bold text-slate-900 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  />
+                </div>
+
                 <button
+                  type="submit"
+                  className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl font-black text-xs shadow-md transition-all active:scale-95"
+                >
+                  {isMarathi ? 'सराफा दर सर्वत्र लागू करा' : 'Save & Apply Gold Rates Everywhere'}
+                </button>
+              </form>
+
+              <div className="pt-2 flex flex-col gap-2 border-t border-slate-100">
+                <button
+                  type="button"
                   onClick={handleSyncLiveRatesNow}
                   disabled={syncingLive}
                   className="w-full py-2.5 bg-slate-900 hover:bg-slate-800 text-amber-400 border border-amber-500/30 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all shadow-xs"

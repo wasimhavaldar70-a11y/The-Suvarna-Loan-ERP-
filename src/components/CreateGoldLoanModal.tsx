@@ -150,12 +150,32 @@ export function CreateGoldLoanModal({
         }
       });
 
-      db.getShop(activeShopId).then((s) => {
-        if (s) {
-          setGoldRate24k(s.gold_rate_24k || 7650);
-          setSilverRatePerGram(92);
+      const syncRates = () => {
+        db.getShopGoldRates(activeShopId).then((rates) => {
+          setGoldRate24k(rates.gold24k);
+          setSilverRatePerGram(rates.silverPerGram);
+        });
+      };
+
+      syncRates();
+
+      const handleRealtimeUpdate = (e: any) => {
+        if (!e.detail?.table || e.detail.table === 'shops') {
+          syncRates();
         }
-      });
+      };
+
+      if (typeof window !== 'undefined') {
+        window.addEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+        window.addEventListener('suvarnaloan-db-update', syncRates);
+      }
+
+      return () => {
+        if (typeof window !== 'undefined') {
+          window.removeEventListener('suvarnaloan-realtime-update', handleRealtimeUpdate);
+          window.removeEventListener('suvarnaloan-db-update', syncRates);
+        }
+      };
     }
   }, [isOpen, preselectedCustomerId]);
 
