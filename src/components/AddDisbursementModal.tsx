@@ -9,6 +9,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, X, Coins, ShieldCheck, Calculator, AlertTriangle, ArrowRight, CheckCircle2, Wallet, Calendar } from 'lucide-react';
 import { db } from '../lib/supabase/supabaseDb';
+import { getSessionUser } from '../lib/supabase/client';
 import { Loan, LoanDisbursement } from '../types';
 import { formatCurrency, formatDate } from '../lib/utils';
 import { calculateGoldValuation } from '../lib/goldValuationEngine';
@@ -38,6 +39,7 @@ export function AddDisbursementModal({
   const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'Bank Transfer' | 'UPI' | 'Cheque'>('Cash');
   const [notes, setNotes] = useState<string>('Additional top-up loan against existing pledged gold');
   const [loading, setLoading] = useState(false);
+  const [goldRate24k, setGoldRate24k] = useState<number>(7650);
 
   useEffect(() => {
     if (loan) {
@@ -46,6 +48,17 @@ export function AddDisbursementModal({
       setDisbursementDate(new Date().toISOString().split('T')[0]);
       setInterestStartDate(new Date().toISOString().split('T')[0]);
       setNotes(isMarathi ? 'सध्याच्या तारण सोन्यावर अतिरिक्त कर्ज वितरण (टॉप-अप)' : 'Additional top-up loan against existing pledged gold');
+
+      // Fetch live gold rate from shop
+      const session = getSessionUser();
+      const activeShopId = loan.shop_id || session?.user?.shop_id || session?.shop?.id || '';
+      if (activeShopId) {
+        db.getShop(activeShopId).then((shop) => {
+          if (shop && shop.gold_rate_24k) {
+            setGoldRate24k(shop.gold_rate_24k);
+          }
+        });
+      }
     }
   }, [loan, isOpen, isMarathi]);
 
@@ -86,7 +99,7 @@ export function AddDisbursementModal({
     grossWeightGrams: loan.gold_item.gross_weight,
     stoneWeightGrams: loan.gold_item.stone_weight,
     purityKarat: loan.gold_item.purity,
-    goldRatePerGram24K: 7650,
+    goldRatePerGram24K: goldRate24k,
     ltvPercentage: 75,
   }) : { estimatedMarketValue: 100000, maxLoanAmount: 75000 };
 

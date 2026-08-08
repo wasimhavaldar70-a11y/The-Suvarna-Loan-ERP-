@@ -70,6 +70,9 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
   const [waModalOpen, setWaModalOpen] = useState(false);
   const [previewDocModal, setPreviewDocModal] = useState<{ title: string; url: string } | null>(null);
 
+  // Live gold rate from shop settings
+  const [goldRate24k, setGoldRate24k] = useState<number>(7650);
+
   // Mobile edit state
   const [editableMobile, setEditableMobile] = useState('');
   const [savingMobile, setSavingMobile] = useState(false);
@@ -81,6 +84,15 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
     setLoan(data);
     if (data && data.customer) {
       setEditableMobile(data.customer.mobile_number);
+    }
+    // Fetch live gold rate from shop settings
+    const session = getSessionUser();
+    const activeShopId = data?.shop_id || session?.user?.shop_id || session?.shop?.id || '';
+    if (activeShopId) {
+      const shop = await db.getShop(activeShopId);
+      if (shop && shop.gold_rate_24k) {
+        setGoldRate24k(shop.gold_rate_24k);
+      }
     }
     setLoading(false);
   };
@@ -241,7 +253,7 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
     grossWeightGrams: loan.gold_item.gross_weight,
     stoneWeightGrams: loan.gold_item.stone_weight,
     purityKarat: loan.gold_item.purity,
-    goldRatePerGram24K: 7650,
+    goldRatePerGram24K: goldRate24k,
     ltvPercentage: 75,
   }) : { estimatedMarketValue: 100000, maxLoanAmount: 75000 };
 
