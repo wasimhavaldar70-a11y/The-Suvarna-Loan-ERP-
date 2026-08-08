@@ -56,16 +56,43 @@ export const setGlobalRealtimeChannel = (channel: any) => {
 };
 
 const dbQueryCache = new Map<string, { data: any; expiresAt: number }>();
+const inFlightDbPromises = new Map<string, Promise<any>>();
 const DEFAULT_CACHE_TTL = 30000; // 30 Seconds safe cache TTL
+
+export async function fetchWithDeduplication<T>(key: string, fetchFn: () => Promise<T>): Promise<T> {
+  const cached = dbQueryCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data as T;
+  }
+  if (inFlightDbPromises.has(key)) {
+    return inFlightDbPromises.get(key) as Promise<T>;
+  }
+  const promise = fetchFn()
+    .then((result) => {
+      dbQueryCache.set(key, { data: result, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
+      return result;
+    })
+    .finally(() => {
+      inFlightDbPromises.delete(key);
+    });
+  inFlightDbPromises.set(key, promise);
+  return promise;
+}
 
 export const clearDbCache = (table?: string) => {
   if (!table) {
     dbQueryCache.clear();
+    inFlightDbPromises.clear();
     return;
   }
   for (const key of dbQueryCache.keys()) {
     if (key.includes(table)) {
       dbQueryCache.delete(key);
+    }
+  }
+  for (const key of inFlightDbPromises.keys()) {
+    if (key.includes(table)) {
+      inFlightDbPromises.delete(key);
     }
   }
   // Invalidate dependent cached tables
@@ -75,11 +102,21 @@ export const clearDbCache = (table?: string) => {
         dbQueryCache.delete(key);
       }
     }
+    for (const key of inFlightDbPromises.keys()) {
+      if (key.includes('dashboard_metrics') || key.includes('disbursements') || key.includes('shop') || key.includes('loans') || key.includes('payments')) {
+        inFlightDbPromises.delete(key);
+      }
+    }
   }
   if (table === 'customers' || table === 'gold_items' || table === 'payments' || table === 'loan_disbursements' || table === 'shops') {
     for (const key of dbQueryCache.keys()) {
       if (key.includes('loans')) {
         dbQueryCache.delete(key);
+      }
+    }
+    for (const key of inFlightDbPromises.keys()) {
+      if (key.includes('loans')) {
+        inFlightDbPromises.delete(key);
       }
     }
   }
@@ -221,44 +258,46 @@ export const db = {
   async getShop(shopId: string): Promise<Shop | null> {
     if (!shopId) return null;
 
-    // 1. Direct Supabase query (works for both authenticated Shop Owners & Super Admins under RLS)
-    if (isRealSupabase) {
-      try {
-        const client = getDbClient();
-        if (client) {
-          const { data, error } = await client.from('shops').select('*').eq('id', shopId).single();
-          if (!error && data) {
-            const effectiveStatus = data.is_active !== undefined && data.is_active !== null ? data.is_active : true;
-            return { ...data, is_active: effectiveStatus } as Shop;
+    return fetchWithDeduplication(`shop_${shopId}`, async () => {
+      // 1. Direct Supabase query (works for both authenticated Shop Owners & Super Admins under RLS)
+      if (isRealSupabase) {
+        try {
+          const client = getDbClient();
+          if (client) {
+            const { data, error } = await client.from('shops').select('*').eq('id', shopId).single();
+            if (!error && data) {
+              const effectiveStatus = data.is_active !== undefined && data.is_active !== null ? data.is_active : true;
+              return { ...data, is_active: effectiveStatus } as Shop;
+            }
           }
+        } catch (err) {
+          console.warn('getShop direct Supabase exception:', err);
         }
-      } catch (err) {
-        console.warn('getShop direct Supabase exception:', err);
       }
-    }
 
-    // 2. Admin API route fallback (Super Admin only)
-    if (typeof window !== 'undefined') {
-      try {
-        const accessToken = await getAccessToken();
-        const res = await fetch('/api/admin/shops', {
-          headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
-        });
-        if (res.ok) {
-          const body = await res.json();
-          if (Array.isArray(body.shops)) {
-            const found = body.shops.find((s: any) => s.id === shopId);
-            if (found) return found as Shop;
+      // 2. Admin API route fallback (Super Admin only)
+      if (typeof window !== 'undefined') {
+        try {
+          const accessToken = await getAccessToken();
+          const res = await fetch('/api/admin/shops', {
+            headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+          });
+          if (res.ok) {
+            const body = await res.json();
+            if (Array.isArray(body.shops)) {
+              const found = body.shops.find((s: any) => s.id === shopId);
+              if (found) return found as Shop;
+            }
           }
+        } catch (err) {
+          console.warn('getShop API fetch warning:', err);
         }
-      } catch (err) {
-        console.warn('getShop API fetch warning:', err);
       }
-    }
 
-    const localShops = getStorageItem<Shop[]>('shops', []);
-    const localMatch = localShops.find(s => s.id === shopId);
-    return localMatch || null;
+      const localShops = getStorageItem<Shop[]>('shops', []);
+      const localMatch = localShops.find(s => s.id === shopId);
+      return localMatch || null;
+    });
   },
 
   async getShopByEmail(email: string): Promise<{ user: User; shop: Shop } | null> {
@@ -700,50 +739,46 @@ export const db = {
   async getCustomers(shopId: string): Promise<Customer[]> {
     if (!shopId) return [];
 
-    const cacheKey = `customers_${shopId}`;
-    const cached = dbQueryCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.data;
-    }
-
-    if (isRealSupabase) {
-      try {
-        const client = getDbClient();
-        if (client) {
-          const { data, error } = await client
-            .from('customers')
-            .select('*')
-            .eq('shop_id', shopId)
-            .is('deleted_at', null)
-            .order('created_at', { ascending: false });
-          if (!error && data) {
-            const refreshed = await Promise.all(
-              (data as Customer[]).map(async (c) => {
-                const photo_url = c.photo_url ? await getSignedDocumentUrl(c.shop_id, c.photo_url) : c.photo_url;
-                const aadhaar_url = c.aadhaar_url ? await getSignedDocumentUrl(c.shop_id, c.aadhaar_url) : c.aadhaar_url;
-                const aadhaar_back_url = c.aadhaar_back_url ? await getSignedDocumentUrl(c.shop_id, c.aadhaar_back_url) : c.aadhaar_back_url;
-                const pan_url = c.pan_url ? await getSignedDocumentUrl(c.shop_id, c.pan_url) : c.pan_url;
-                return {
-                  ...c,
-                  photo_url,
-                  aadhaar_url,
-                  aadhaar_back_url,
-                  pan_url,
-                };
-              })
-            );
-            dbQueryCache.set(cacheKey, { data: refreshed, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
-            return refreshed;
+    return fetchWithDeduplication(`customers_${shopId}`, async () => {
+      if (isRealSupabase) {
+        try {
+          const client = getDbClient();
+          if (client) {
+            const { data, error } = await client
+              .from('customers')
+              .select('*')
+              .eq('shop_id', shopId)
+              .is('deleted_at', null)
+              .order('created_at', { ascending: false });
+            if (!error && data) {
+              const refreshed = await Promise.all(
+                (data as Customer[]).map(async (c) => {
+                  const [photo_url, aadhaar_url, aadhaar_back_url, pan_url] = await Promise.all([
+                    c.photo_url ? getSignedDocumentUrl(c.shop_id, c.photo_url) : Promise.resolve(c.photo_url),
+                    c.aadhaar_url ? getSignedDocumentUrl(c.shop_id, c.aadhaar_url) : Promise.resolve(c.aadhaar_url),
+                    c.aadhaar_back_url ? getSignedDocumentUrl(c.shop_id, c.aadhaar_back_url) : Promise.resolve(c.aadhaar_back_url),
+                    c.pan_url ? getSignedDocumentUrl(c.shop_id, c.pan_url) : Promise.resolve(c.pan_url),
+                  ]);
+                  return {
+                    ...c,
+                    photo_url,
+                    aadhaar_url,
+                    aadhaar_back_url,
+                    pan_url,
+                  };
+                })
+              );
+              return refreshed;
+            }
           }
+        } catch (err) {
+          console.warn('getCustomers Supabase fetch warning:', err);
         }
-      } catch (err) {
-        console.warn('getCustomers Supabase fetch warning:', err);
       }
-    }
 
-    const localCustomers = getStorageItem<Customer[]>('customers', DEFAULT_CUSTOMERS).filter(c => c.shop_id === shopId && !c.deleted_at);
-    dbQueryCache.set(cacheKey, { data: localCustomers, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
-    return localCustomers;
+      const localCustomers = getStorageItem<Customer[]>('customers', DEFAULT_CUSTOMERS).filter(c => c.shop_id === shopId && !c.deleted_at);
+      return localCustomers;
+    });
   },
 
   async createCustomer(customer: Omit<Customer, 'id' | 'created_at'> & { id?: string; request_uuid?: string }): Promise<Customer> {
@@ -913,46 +948,40 @@ export const db = {
   async getGoldItems(shopId: string): Promise<GoldItem[]> {
     if (!shopId) return [];
 
-    const cacheKey = `gold_items_${shopId}`;
-    const cached = dbQueryCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.data;
-    }
-
-    if (isRealSupabase) {
-      try {
-        const client = getDbClient();
-        if (client) {
-          const { data, error } = await client
-            .from('gold_items')
-            .select('*')
-            .eq('shop_id', shopId)
-            .is('deleted_at', null)
-            .order('created_at', { ascending: false });
-          if (!error && data) {
-            const refreshed = await Promise.all(
-              (data as GoldItem[]).map(async (g) => {
-                const rawUrl = g.photo_url || (g as any).front_image_url || (g as any).back_image_url || '';
-                const photo_url = rawUrl ? await getSignedDocumentUrl(g.shop_id || shopId, rawUrl) : '';
-                return {
-                  ...g,
-                  photo_url,
-                  front_image_url: photo_url,
-                };
-              })
-            );
-            dbQueryCache.set(cacheKey, { data: refreshed, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
-            return refreshed;
+    return fetchWithDeduplication(`gold_items_${shopId}`, async () => {
+      if (isRealSupabase) {
+        try {
+          const client = getDbClient();
+          if (client) {
+            const { data, error } = await client
+              .from('gold_items')
+              .select('*')
+              .eq('shop_id', shopId)
+              .is('deleted_at', null)
+              .order('created_at', { ascending: false });
+            if (!error && data) {
+              const refreshed = await Promise.all(
+                (data as GoldItem[]).map(async (g) => {
+                  const rawUrl = g.photo_url || (g as any).front_image_url || (g as any).back_image_url || '';
+                  const photo_url = rawUrl ? await getSignedDocumentUrl(g.shop_id || shopId, rawUrl) : '';
+                  return {
+                    ...g,
+                    photo_url,
+                    front_image_url: photo_url,
+                  };
+                })
+              );
+              return refreshed;
+            }
           }
+        } catch (err) {
+          console.warn('getGoldItems fetch warning:', err);
         }
-      } catch (err) {
-        console.warn('getGoldItems fetch warning:', err);
       }
-    }
 
-    const localItems = getStorageItem<GoldItem[]>('gold_items', DEFAULT_GOLD_ITEMS).filter(g => g.shop_id === shopId && !g.deleted_at);
-    dbQueryCache.set(cacheKey, { data: localItems, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
-    return localItems;
+      const localItems = getStorageItem<GoldItem[]>('gold_items', DEFAULT_GOLD_ITEMS).filter(g => g.shop_id === shopId && !g.deleted_at);
+      return localItems;
+    });
   },
 
   async createGoldItem(item: Omit<GoldItem, 'id' | 'created_at'>): Promise<GoldItem> {
@@ -1234,10 +1263,11 @@ export const db = {
     setStorageItem('loan_disbursements', combinedDisbs, targetShopId);
     setStorageItem('loan_disbursements', combinedDisbs);
 
-    // Update the master Loan record to reflect new total cumulative principal: Disbursement #1 + Disbursement #2 + ...
+    // Update the master Loan record to reflect new total cumulative principal and ensure status is Active
     const activeLoanId = targetLoan ? targetLoan.id : disbursementData.loan_id;
     const allTranchesForLoan = updatedLoanDisbursements.filter(d => (d.loan_id === activeLoanId || (targetLoan && d.loan_id === targetLoan.loan_number)) && !d.deleted_at);
     const newTotalPrincipal = allTranchesForLoan.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+    const newRemainingPrincipal = allTranchesForLoan.reduce((sum, d) => sum + (Number(d.principal_outstanding) || 0), 0);
 
     const updateLoanList = (list: Loan[]) => {
       return list.map(l => {
@@ -1246,7 +1276,10 @@ export const db = {
             ...l,
             loan_amount: newTotalPrincipal,
             total_disbursed: newTotalPrincipal,
+            total_principal_outstanding: newRemainingPrincipal,
+            total_balance_due: newRemainingPrincipal,
             status: 'Active' as any,
+            closed_date: undefined,
             disbursements: allTranchesForLoan,
           };
         }
@@ -1262,7 +1295,13 @@ export const db = {
 
     if (isRealSupabase && supabase && targetLoan) {
       try {
-        await supabase.from('loans').update({ loan_amount: newTotalPrincipal, status: 'Active' }).eq('id', targetLoan.id);
+        await supabase.from('loans').update({
+          loan_amount: newTotalPrincipal,
+          total_principal_outstanding: newRemainingPrincipal,
+          total_balance_due: newRemainingPrincipal,
+          status: 'Active',
+          closed_date: null,
+        }).eq('id', targetLoan.id);
       } catch (err) {
         console.warn('Supabase loan total amount update warning:', err);
       }
@@ -1291,243 +1330,238 @@ export const db = {
   async getLoans(shopId: string): Promise<Loan[]> {
     if (!shopId) return [];
 
-    const cacheKey = `loans_${shopId}`;
-    const cached = dbQueryCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.data;
-    }
+    return fetchWithDeduplication(`loans_${shopId}`, async () => {
+      let resultLoans: Loan[] = [];
 
-    let resultLoans: Loan[] = [];
-
-    if (isRealSupabase) {
-      try {
-        const client = getDbClient();
-        if (client) {
-          const { data, error } = await client
-            .from('loans')
-            .select('*, customer:customers(*), gold_item:gold_items(*), payments(*)')
-            .eq('shop_id', shopId)
-            .is('deleted_at', null)
-            .order('created_at', { ascending: false });
-          if (!error && data) {
-            const [allDisbursements, allPayments] = await Promise.all([
+      if (isRealSupabase) {
+        try {
+          const client = getDbClient();
+          if (client) {
+            // Run loans query, disbursements query, and payments query in PARALLEL
+            const [loansRes, allDisbursements, allPayments] = await Promise.all([
+              client
+                .from('loans')
+                .select('*, customer:customers(*), gold_item:gold_items(*), payments(*)')
+                .eq('shop_id', shopId)
+                .is('deleted_at', null)
+                .order('created_at', { ascending: false }),
               this.getDisbursements(shopId),
               this.getPayments(shopId),
             ]);
 
-            const disbGroupMap = new Map<string, LoanDisbursement[]>();
-            allDisbursements.forEach(d => {
-              if (d && d.loan_id) {
-                const lid = String(d.loan_id).trim();
-                const existing = disbGroupMap.get(lid) || [];
-                existing.push(d);
-                disbGroupMap.set(lid, existing);
-              }
-            });
-
-            const pmtGroupMap = new Map<string, Payment[]>();
-            allPayments.forEach(p => {
-              if (p && p.loan_id) {
-                const lid = String(p.loan_id).trim();
-                const existing = pmtGroupMap.get(lid) || [];
-                existing.push(p);
-                pmtGroupMap.set(lid, existing);
-              }
-            });
-
-            resultLoans = await Promise.all(
-              (data as any[]).map(async (loan) => {
-                const cust = Array.isArray(loan.customer) ? loan.customer[0] : (loan.customer || {
-                  id: loan.customer_id,
-                  full_name: (loan as any).customer_name || 'Customer Record Unlinked',
-                  mobile_number: (loan as any).customer_mobile || 'N/A',
-                });
-
-                let rawGold = Array.isArray(loan.gold_item) ? loan.gold_item[0] : (loan.gold_item || {});
-                if (rawGold && (rawGold.photo_url || (rawGold as any).front_image_url || (rawGold as any).back_image_url)) {
-                  const rawUrl = rawGold.photo_url || (rawGold as any).front_image_url || (rawGold as any).back_image_url || '';
-                  const photo_url = rawUrl ? await getSignedDocumentUrl(loan.shop_id, rawUrl) : '';
-                  rawGold = {
-                    ...rawGold,
-                    photo_url,
-                    front_image_url: photo_url,
-                  };
+            const data = loansRes.data;
+            if (!loansRes.error && data) {
+              const disbGroupMap = new Map<string, LoanDisbursement[]>();
+              allDisbursements.forEach(d => {
+                if (d && d.loan_id) {
+                  const lid = String(d.loan_id).trim();
+                  const existing = disbGroupMap.get(lid) || [];
+                  existing.push(d);
+                  disbGroupMap.set(lid, existing);
                 }
+              });
 
-                const embeddedPmts = (loan.payments || []).map((p: any) => ({ ...p, amount: Number(p.amount) || 0 }));
-                const pmtMap = new Map<string, Payment>();
-                const fromGroup = pmtGroupMap.get(String(loan.id).trim()) || (loan.loan_number ? pmtGroupMap.get(String(loan.loan_number).trim()) : null) || [];
-                fromGroup.forEach(p => pmtMap.set(p.id, p));
-                embeddedPmts.forEach((p: Payment) => pmtMap.set(p.id, p));
-                const pmts = Array.from(pmtMap.values()).sort((a, b) => new Date(b.created_at || b.payment_date || 0).getTime() - new Date(a.created_at || a.payment_date || 0).getTime());
-                
-                let tranches = disbGroupMap.get(String(loan.id).trim()) || (loan.loan_number ? disbGroupMap.get(String(loan.loan_number).trim()) : null) || [];
-                if (!tranches.some(t => t.disbursement_number === 1)) {
-                  const initialDisb: LoanDisbursement = {
-                    id: `disb-${loan.id}-1`,
-                    loan_id: loan.id,
-                    shop_id: loan.shop_id,
-                    disbursement_number: 1,
-                    amount: Number(loan.loan_amount) || 0,
-                    interest_rate: loan.interest_rate || 1.5,
-                    disbursement_date: loan.loan_date || new Date().toISOString().split('T')[0],
-                    interest_start_date: loan.loan_date || new Date().toISOString().split('T')[0],
-                    due_date: loan.due_date || new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
-                    tenure_months: loan.tenure_months || 12,
-                    status: loan.status === 'Closed' ? 'Settled' : 'Active',
-                    principal_outstanding: loan.status === 'Closed' ? 0 : Number(loan.loan_amount),
-                    payment_method: 'Cash',
-                    notes: 'Initial Gold Pledge Disbursement #1',
-                    created_at: loan.created_at || new Date().toISOString(),
-                  };
-                  tranches = [initialDisb, ...tranches];
+              const pmtGroupMap = new Map<string, Payment[]>();
+              allPayments.forEach(p => {
+                if (p && p.loan_id) {
+                  const lid = String(p.loan_id).trim();
+                  const existing = pmtGroupMap.get(lid) || [];
+                  existing.push(p);
+                  pmtGroupMap.set(lid, existing);
                 }
-                tranches.sort((a, b) => (a.disbursement_number || 1) - (b.disbursement_number || 1));
+              });
 
-                const fin = calculateLoanFinancials(
-                  loan.loan_amount,
-                  loan.interest_rate,
-                  loan.loan_date,
-                  loan.due_date,
-                  pmts,
-                  loan.repayment_model || 'Bullet Repayment',
-                  loan.tenure_months || 12,
-                  tranches
-                );
+              resultLoans = await Promise.all(
+                (data as any[]).map(async (loan) => {
+                  const cust = Array.isArray(loan.customer) ? loan.customer[0] : (loan.customer || {
+                    id: loan.customer_id,
+                    full_name: (loan as any).customer_name || 'Customer Record Unlinked',
+                    mobile_number: (loan as any).customer_mobile || 'N/A',
+                  });
 
-                const isFullySettled = fin.remainingPrincipal <= 0 || fin.totalBalanceDue <= 0 || (loan.status as string) === 'Closed' || (loan.status as string) === 'Settled';
-                const effectiveStatus: LoanStatus = isFullySettled
-                  ? 'Closed'
-                  : loan.status === 'Auctioned'
-                  ? 'Auctioned'
-                  : fin.isOverdue
-                  ? 'Overdue'
-                  : (loan.status || 'Active');
+                  let rawGold = Array.isArray(loan.gold_item) ? loan.gold_item[0] : (loan.gold_item || {});
+                  if (rawGold && (rawGold.photo_url || (rawGold as any).front_image_url || (rawGold as any).back_image_url)) {
+                    const rawUrl = rawGold.photo_url || (rawGold as any).front_image_url || (rawGold as any).back_image_url || '';
+                    const photo_url = rawUrl ? await getSignedDocumentUrl(loan.shop_id, rawUrl) : '';
+                    rawGold = {
+                      ...rawGold,
+                      photo_url,
+                      front_image_url: photo_url,
+                    };
+                  }
 
-                return {
-                  ...loan,
-                  status: effectiveStatus,
-                  customer: cust,
-                  gold_item: rawGold,
-                  payments: pmts,
-                  disbursements: tranches,
-                  total_disbursed: fin.totalDisbursed || loan.loan_amount,
-                  total_principal_outstanding: isFullySettled ? 0 : fin.remainingPrincipal,
-                  accrued_interest: isFullySettled ? 0 : fin.netAccruedInterest,
-                  total_balance_due: isFullySettled ? 0 : fin.totalBalanceDue,
-                };
-              })
-            );
+                  const embeddedPmts = (loan.payments || []).map((p: any) => ({ ...p, amount: Number(p.amount) || 0 }));
+                  const pmtMap = new Map<string, Payment>();
+                  const fromGroup = pmtGroupMap.get(String(loan.id).trim()) || (loan.loan_number ? pmtGroupMap.get(String(loan.loan_number).trim()) : null) || [];
+                  fromGroup.forEach(p => pmtMap.set(p.id, p));
+                  embeddedPmts.forEach((p: Payment) => pmtMap.set(p.id, p));
+                  const pmts = Array.from(pmtMap.values()).sort((a, b) => new Date(b.created_at || b.payment_date || 0).getTime() - new Date(a.created_at || a.payment_date || 0).getTime());
+                  
+                  let tranches = disbGroupMap.get(String(loan.id).trim()) || (loan.loan_number ? disbGroupMap.get(String(loan.loan_number).trim()) : null) || [];
+                  if (!tranches.some(t => t.disbursement_number === 1)) {
+                    const initialDisb: LoanDisbursement = {
+                      id: `disb-${loan.id}-1`,
+                      loan_id: loan.id,
+                      shop_id: loan.shop_id,
+                      disbursement_number: 1,
+                      amount: Number(loan.loan_amount) || 0,
+                      interest_rate: loan.interest_rate || 1.5,
+                      disbursement_date: loan.loan_date || new Date().toISOString().split('T')[0],
+                      interest_start_date: loan.loan_date || new Date().toISOString().split('T')[0],
+                      due_date: loan.due_date || new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
+                      tenure_months: loan.tenure_months || 12,
+                      status: loan.status === 'Closed' ? 'Settled' : 'Active',
+                      principal_outstanding: loan.status === 'Closed' ? 0 : Number(loan.loan_amount),
+                      payment_method: 'Cash',
+                      notes: 'Initial Gold Pledge Disbursement #1',
+                      created_at: loan.created_at || new Date().toISOString(),
+                    };
+                    tranches = [initialDisb, ...tranches];
+                  }
+                  tranches.sort((a, b) => (a.disbursement_number || 1) - (b.disbursement_number || 1));
 
-            dbQueryCache.set(cacheKey, { data: resultLoans, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
-            return resultLoans;
+                  const fin = calculateLoanFinancials(
+                    loan.loan_amount,
+                    loan.interest_rate,
+                    loan.loan_date,
+                    loan.due_date,
+                    pmts,
+                    loan.repayment_model || 'Bullet Repayment',
+                    loan.tenure_months || 12,
+                    tranches
+                  );
+
+                  const isFullySettled = fin.remainingPrincipal <= 0 && fin.totalBalanceDue <= 0;
+                  const effectiveStatus: LoanStatus = isFullySettled
+                    ? 'Closed'
+                    : loan.status === 'Auctioned'
+                    ? 'Auctioned'
+                    : fin.isOverdue
+                    ? 'Overdue'
+                    : 'Active';
+
+                  return {
+                    ...loan,
+                    status: effectiveStatus,
+                    customer: cust,
+                    gold_item: rawGold,
+                    payments: pmts,
+                    disbursements: tranches,
+                    total_disbursed: fin.totalDisbursed || loan.loan_amount,
+                    total_principal_outstanding: isFullySettled ? 0 : fin.remainingPrincipal,
+                    accrued_interest: isFullySettled ? 0 : fin.netAccruedInterest,
+                    total_balance_due: isFullySettled ? 0 : fin.totalBalanceDue,
+                  };
+                })
+              );
+              return resultLoans;
+            }
           }
+        } catch (err) {
+          console.warn('getLoans Supabase warning:', err);
         }
-      } catch (err) {
-        console.warn('getLoans Supabase warning:', err);
       }
-    }
 
-    const [customersList, goldItemsList, paymentsList, allDisbursements] = await Promise.all([
-      this.getCustomers(shopId),
-      this.getGoldItems(shopId),
-      this.getPayments(shopId),
-      this.getDisbursements(shopId),
-    ]);
+      const [customersList, goldItemsList, paymentsList, allDisbursements] = await Promise.all([
+        this.getCustomers(shopId),
+        this.getGoldItems(shopId),
+        this.getPayments(shopId),
+        this.getDisbursements(shopId),
+      ]);
 
-    const goldMap = new Map<string, GoldItem>();
-    goldItemsList.forEach(g => {
-      if (g && g.id) goldMap.set(String(g.id).trim(), g);
-    });
+      const goldMap = new Map<string, GoldItem>();
+      goldItemsList.forEach(g => {
+        if (g && g.id) goldMap.set(String(g.id).trim(), g);
+      });
 
-    const pmtGroupMap = new Map<string, Payment[]>();
-    paymentsList.forEach(p => {
-      if (p && p.loan_id) {
-        const lid = String(p.loan_id).trim();
-        const existing = pmtGroupMap.get(lid) || [];
-        existing.push(p);
-        pmtGroupMap.set(lid, existing);
-      }
-    });
+      const pmtGroupMap = new Map<string, Payment[]>();
+      paymentsList.forEach(p => {
+        if (p && p.loan_id) {
+          const lid = String(p.loan_id).trim();
+          const existing = pmtGroupMap.get(lid) || [];
+          existing.push(p);
+          pmtGroupMap.set(lid, existing);
+        }
+      });
 
-    const disbGroupMap = new Map<string, LoanDisbursement[]>();
-    allDisbursements.forEach(d => {
-      if (d && d.loan_id) {
-        const lid = String(d.loan_id).trim();
-        const existing = disbGroupMap.get(lid) || [];
-        existing.push(d);
-        disbGroupMap.set(lid, existing);
-      }
-    });
+      const disbGroupMap = new Map<string, LoanDisbursement[]>();
+      allDisbursements.forEach(d => {
+        if (d && d.loan_id) {
+          const lid = String(d.loan_id).trim();
+          const existing = disbGroupMap.get(lid) || [];
+          existing.push(d);
+          disbGroupMap.set(lid, existing);
+        }
+      });
 
-    const localLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id === shopId && !l.deleted_at);
-    resultLoans = localLoans.map((loan, idx) => {
-      const cust = resolveLoanCustomer(loan, customersList, idx);
+      const localLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id === shopId && !l.deleted_at);
+      resultLoans = localLoans.map((loan, idx) => {
+        const cust = resolveLoanCustomer(loan, customersList, idx);
 
-      const rawGold = (loan.gold_item_id ? goldMap.get(String(loan.gold_item_id).trim()) : null) || loan.gold_item;
-      const gold = Array.isArray(rawGold) ? rawGold[0] : rawGold;
+        const rawGold = (loan.gold_item_id ? goldMap.get(String(loan.gold_item_id).trim()) : null) || loan.gold_item;
+        const gold = Array.isArray(rawGold) ? rawGold[0] : rawGold;
 
-      const pmts = pmtGroupMap.get(String(loan.id).trim()) || (loan.loan_number ? pmtGroupMap.get(String(loan.loan_number).trim()) : null) || [];
-      
-      let tranches = disbGroupMap.get(String(loan.id).trim()) || (loan.loan_number ? disbGroupMap.get(String(loan.loan_number).trim()) : null) || [];
-      if (!tranches.some(t => t.disbursement_number === 1)) {
-        const initialDisb: LoanDisbursement = {
-          id: `disb-${loan.id}-1`,
-          loan_id: loan.id,
-          shop_id: loan.shop_id,
-          disbursement_number: 1,
-          amount: Number(loan.loan_amount) || 0,
-          interest_rate: loan.interest_rate || 1.5,
-          disbursement_date: loan.loan_date || new Date().toISOString().split('T')[0],
-          interest_start_date: loan.loan_date || new Date().toISOString().split('T')[0],
-          due_date: loan.due_date || new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
-          tenure_months: loan.tenure_months || 12,
-          status: loan.status === 'Closed' ? 'Settled' : 'Active',
-          principal_outstanding: loan.status === 'Closed' ? 0 : Number(loan.loan_amount),
-          payment_method: 'Cash',
-          notes: 'Initial Gold Pledge Disbursement #1',
-          created_at: loan.created_at || new Date().toISOString(),
+        const pmts = pmtGroupMap.get(String(loan.id).trim()) || (loan.loan_number ? pmtGroupMap.get(String(loan.loan_number).trim()) : null) || [];
+        
+        let tranches = disbGroupMap.get(String(loan.id).trim()) || (loan.loan_number ? disbGroupMap.get(String(loan.loan_number).trim()) : null) || [];
+        if (!tranches.some(t => t.disbursement_number === 1)) {
+          const initialDisb: LoanDisbursement = {
+            id: `disb-${loan.id}-1`,
+            loan_id: loan.id,
+            shop_id: loan.shop_id,
+            disbursement_number: 1,
+            amount: Number(loan.loan_amount) || 0,
+            interest_rate: loan.interest_rate || 1.5,
+            disbursement_date: loan.loan_date || new Date().toISOString().split('T')[0],
+            interest_start_date: loan.loan_date || new Date().toISOString().split('T')[0],
+            due_date: loan.due_date || new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
+            tenure_months: loan.tenure_months || 12,
+            status: loan.status === 'Closed' ? 'Settled' : 'Active',
+            principal_outstanding: loan.status === 'Closed' ? 0 : Number(loan.loan_amount),
+            payment_method: 'Cash',
+            notes: 'Initial Gold Pledge Disbursement #1',
+            created_at: loan.created_at || new Date().toISOString(),
+          };
+          tranches = [initialDisb, ...tranches];
+        }
+        tranches.sort((a, b) => (a.disbursement_number || 1) - (b.disbursement_number || 1));
+
+        const fin = calculateLoanFinancials(
+          loan.loan_amount,
+          loan.interest_rate,
+          loan.loan_date,
+          loan.due_date,
+          pmts,
+          loan.repayment_model || 'Bullet Repayment',
+          loan.tenure_months || 12,
+          tranches
+        );
+
+        const isFullySettled = fin.remainingPrincipal <= 0 && fin.totalBalanceDue <= 0;
+        const effectiveStatus: LoanStatus = isFullySettled
+          ? 'Closed'
+          : loan.status === 'Auctioned'
+          ? 'Auctioned'
+          : fin.isOverdue
+          ? 'Overdue'
+          : 'Active';
+
+        return {
+          ...loan,
+          status: effectiveStatus,
+          customer: cust,
+          gold_item: gold,
+          payments: pmts,
+          disbursements: tranches,
+          total_disbursed: fin.totalDisbursed || loan.loan_amount,
+          total_principal_outstanding: isFullySettled ? 0 : fin.remainingPrincipal,
+          accrued_interest: isFullySettled ? 0 : fin.netAccruedInterest,
+          total_balance_due: isFullySettled ? 0 : fin.totalBalanceDue,
         };
-        tranches = [initialDisb, ...tranches];
-      }
-      tranches.sort((a, b) => (a.disbursement_number || 1) - (b.disbursement_number || 1));
+      });
 
-      const fin = calculateLoanFinancials(
-        loan.loan_amount,
-        loan.interest_rate,
-        loan.loan_date,
-        loan.due_date,
-        pmts,
-        loan.repayment_model || 'Bullet Repayment',
-        loan.tenure_months || 12,
-        tranches
-      );
-
-      const isFullySettled = fin.remainingPrincipal <= 0 || fin.totalBalanceDue <= 0 || (loan.status as string) === 'Closed' || (loan.status as string) === 'Settled';
-      const effectiveStatus: LoanStatus = isFullySettled
-        ? 'Closed'
-        : loan.status === 'Auctioned'
-        ? 'Auctioned'
-        : fin.isOverdue
-        ? 'Overdue'
-        : (loan.status || 'Active');
-
-      return {
-        ...loan,
-        status: effectiveStatus,
-        customer: cust,
-        gold_item: gold,
-        payments: pmts,
-        disbursements: tranches,
-        total_disbursed: fin.totalDisbursed || loan.loan_amount,
-        total_principal_outstanding: isFullySettled ? 0 : fin.remainingPrincipal,
-        accrued_interest: isFullySettled ? 0 : fin.netAccruedInterest,
-        total_balance_due: isFullySettled ? 0 : fin.totalBalanceDue,
-      };
+      return resultLoans;
     });
-
-    dbQueryCache.set(cacheKey, { data: resultLoans, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
-    return resultLoans;
   },
 
   async getLoanById(loanId: string, shopId?: string): Promise<Loan | null> {
@@ -1538,7 +1572,7 @@ export const db = {
       try {
         let q = supabase
           .from('loans')
-          .select('*, customer:customers(*), gold_item:gold_items(*), payments(*)')
+          .select('*, customer:customers(*), gold_item:gold_items(*), payments(*), loan_disbursements(*)')
           .or(`id.eq.${loanId},loan_number.eq.${loanId}`);
         if (shopId) q = q.eq('shop_id', shopId);
         const { data, error } = await q.limit(1);
@@ -1548,15 +1582,18 @@ export const db = {
           
           let cust = Array.isArray(l.customer) ? l.customer[0] : l.customer;
           if (!cust || !cust.full_name) {
-            const customers = await this.getCustomers(activeShopId);
-            cust = resolveLoanCustomer(l, customers, 0);
+            if (l.customer_id) {
+              const { data: cData } = await supabase.from('customers').select('*').eq('id', l.customer_id).limit(1);
+              if (cData && cData.length > 0) cust = cData[0];
+            }
           }
 
           let gold = Array.isArray(l.gold_item) ? l.gold_item[0] : l.gold_item;
           if (!gold || !gold.ornament_type) {
-            const goldItems = await this.getGoldItems(activeShopId);
-            const rawGold = goldItems.find(g => g.id === l.gold_item_id || String(g.id).trim() === String(l.gold_item_id).trim());
-            gold = rawGold || gold;
+            if (l.gold_item_id) {
+              const { data: gData } = await supabase.from('gold_items').select('*').eq('id', l.gold_item_id).limit(1);
+              if (gData && gData.length > 0) gold = gData[0];
+            }
           }
 
           if (gold) {
@@ -1569,21 +1606,13 @@ export const db = {
             };
           }
 
-          const allPayments = await this.getPayments(activeShopId);
-          const cloudPmts = (l.payments || []).map((p: any) => ({ ...p, amount: Number(p.amount) || 0 }));
-          const pmtMap = new Map<string, Payment>();
-          allPayments.filter((p: Payment) => p.loan_id === l.id || p.loan_id === l.loan_number).forEach((p: Payment) => pmtMap.set(p.id, p));
-          cloudPmts.forEach((p: Payment) => pmtMap.set(p.id, p));
-          const pmts = Array.from(pmtMap.values()).sort((a, b) => new Date(b.created_at || b.payment_date || 0).getTime() - new Date(a.created_at || a.payment_date || 0).getTime());
+          const rawPmts = Array.isArray(l.payments) ? l.payments : [];
+          const pmts = rawPmts
+            .map((p: any) => ({ ...p, amount: Number(p.amount) || 0 }))
+            .sort((a: any, b: any) => new Date(b.created_at || b.payment_date || 0).getTime() - new Date(a.created_at || a.payment_date || 0).getTime());
 
-          // Fetch all disbursements (cloud + local storage merged)
-          const fetchedTranches = await this.getDisbursements(activeShopId, l.id);
-          const cloudTranches = Array.isArray(l.disbursements) ? l.disbursements : [];
-          const trancheMap = new Map<string, LoanDisbursement>();
-          cloudTranches.forEach((d: LoanDisbursement) => trancheMap.set(d.id, d));
-          fetchedTranches.forEach((d: LoanDisbursement) => trancheMap.set(d.id, d));
-
-          let tranches: LoanDisbursement[] = Array.from(trancheMap.values());
+          const rawTranches = Array.isArray(l.loan_disbursements) ? l.loan_disbursements : [];
+          let tranches: LoanDisbursement[] = [...rawTranches];
           if (!tranches.some(t => t.disbursement_number === 1)) {
             const initialDisb: LoanDisbursement = {
               id: `disb-${l.id}-1`,
@@ -1618,14 +1647,14 @@ export const db = {
             tranches
           );
 
-          const isFullySettled = fin.remainingPrincipal <= 0 || fin.totalBalanceDue <= 0 || (l.status as string) === 'Closed' || (l.status as string) === 'Settled';
+          const isFullySettled = fin.remainingPrincipal <= 0 && fin.totalBalanceDue <= 0;
           const effectiveStatus: LoanStatus = isFullySettled
             ? 'Closed'
             : l.status === 'Auctioned'
             ? 'Auctioned'
             : fin.isOverdue
             ? 'Overdue'
-            : (l.status || 'Active');
+            : 'Active';
 
           return {
             ...l,
@@ -1692,14 +1721,14 @@ export const db = {
       tranches
     );
 
-    const isFullySettled = fin.remainingPrincipal <= 0 || fin.totalBalanceDue <= 0 || (raw.status as string) === 'Closed' || (raw.status as string) === 'Settled';
+    const isFullySettled = fin.remainingPrincipal <= 0 && fin.totalBalanceDue <= 0;
     const effectiveStatus: LoanStatus = isFullySettled
       ? 'Closed'
       : raw.status === 'Auctioned'
       ? 'Auctioned'
       : fin.isOverdue
       ? 'Overdue'
-      : (raw.status || 'Active');
+      : 'Active';
 
     const cust = resolveLoanCustomer(raw, customers, 0);
     const rawGold = goldItems.find(g => g.id === raw.gold_item_id || String(g.id).trim() === String(raw.gold_item_id).trim()) || raw.gold_item;
@@ -1882,8 +1911,16 @@ export const db = {
       loans[idx].status = status;
       if (status === 'Closed') {
         loans[idx].closed_date = new Date().toISOString().split('T')[0];
+        loans[idx].total_principal_outstanding = 0;
+        loans[idx].total_balance_due = 0;
+        loans[idx].accrued_interest = 0;
+      } else {
+        loans[idx].closed_date = undefined;
       }
       setStorageItem('loans', loans);
+      if (loans[idx].shop_id) {
+        setStorageItem('loans', loans, loans[idx].shop_id);
+      }
     }
 
     if (isRealSupabase && supabase) {
@@ -1891,6 +1928,11 @@ export const db = {
         const updateData: any = { status };
         if (status === 'Closed') {
           updateData.closed_date = new Date().toISOString().split('T')[0];
+          updateData.total_principal_outstanding = 0;
+          updateData.total_balance_due = 0;
+          updateData.accrued_interest = 0;
+        } else {
+          updateData.closed_date = null;
         }
         await supabase.from('loans').update(updateData).eq('id', loanId);
       } catch (err) {
@@ -1898,6 +1940,7 @@ export const db = {
       }
     }
 
+    clearDbCache();
     broadcastDbUpdate('loans');
     return true;
   },
@@ -1953,79 +1996,76 @@ export const db = {
   async getPayments(shopId: string, forceFresh: boolean = false): Promise<Payment[]> {
     if (!shopId) return [];
 
-    const cacheKey = `payments_${shopId}`;
-    if (!forceFresh) {
-      const cached = dbQueryCache.get(cacheKey);
-      if (cached && cached.expiresAt > Date.now()) {
-        return cached.data;
-      }
+    if (forceFresh) {
+      clearDbCache('payments');
     }
 
-    let cloudPayments: Payment[] = [];
+    return fetchWithDeduplication(`payments_${shopId}`, async () => {
+      let cloudPayments: Payment[] = [];
 
-    // 1. Primary: Query via Server-side /api/payments with Service Role guarantee
-    if (typeof window !== 'undefined') {
-      try {
-        const res = await fetch(`/api/payments?shop_id=${encodeURIComponent(shopId)}`);
-        if (res.ok) {
-          const body = await res.json();
-          if (Array.isArray(body.payments)) {
-            cloudPayments = body.payments as Payment[];
+      // 1. Primary: Query via Server-side /api/payments with Service Role guarantee
+      if (typeof window !== 'undefined') {
+        try {
+          const res = await fetch(`/api/payments?shop_id=${encodeURIComponent(shopId)}`);
+          if (res.ok) {
+            const body = await res.json();
+            if (Array.isArray(body.payments)) {
+              cloudPayments = body.payments as Payment[];
+            }
           }
+        } catch (err) {
+          console.warn('API /api/payments fetch warning:', err);
         }
-      } catch (err) {
-        console.warn('API /api/payments fetch warning:', err);
       }
-    }
 
-    // 2. Secondary: Direct Supabase client query
-    if (cloudPayments.length === 0 && isRealSupabase && supabase) {
-      try {
-        const { data, error } = await supabase
-          .from('payments')
-          .select('*, loan:loans(*, customer:customers(*), gold_item:gold_items(*))')
-          .eq('shop_id', shopId)
-          .order('created_at', { ascending: false });
-        if (!error && data) {
-          cloudPayments = data as Payment[];
+      // 2. Secondary: Direct Supabase client query
+      if (cloudPayments.length === 0 && isRealSupabase && supabase) {
+        try {
+          const { data, error } = await supabase
+            .from('payments')
+            .select('*, loan:loans(*, customer:customers(*), gold_item:gold_items(*))')
+            .eq('shop_id', shopId)
+            .order('created_at', { ascending: false });
+          if (!error && data) {
+            cloudPayments = data as Payment[];
+          }
+        } catch (err) {
+          console.warn('getPayments Supabase direct warning:', err);
         }
-      } catch (err) {
-        console.warn('getPayments Supabase direct warning:', err);
       }
-    }
 
-    const localPayments = getStorageItem<Payment[]>('payments', DEFAULT_PAYMENTS);
-    const localLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS);
+      const localPayments = getStorageItem<Payment[]>('payments', DEFAULT_PAYMENTS);
+      const localLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS);
 
-    const mergedMap = new Map<string, Payment>();
-    cloudPayments.forEach((p) => mergedMap.set(p.id, p));
-    localPayments.forEach((p) => {
-      if (p.shop_id === shopId || !p.shop_id) {
-        mergedMap.set(p.id, p);
-      }
+      const mergedMap = new Map<string, Payment>();
+      cloudPayments.forEach((p) => mergedMap.set(p.id, p));
+      localPayments.forEach((p) => {
+        if (p.shop_id === shopId || !p.shop_id) {
+          mergedMap.set(p.id, p);
+        }
+      });
+
+      const allPaymentsArray = Array.from(mergedMap.values());
+      const loanPmtsMap = new Map<string, Payment[]>();
+      allPaymentsArray.forEach(p => {
+        if (p && p.loan_id) {
+          const lid = String(p.loan_id).trim();
+          const existing = loanPmtsMap.get(lid) || [];
+          existing.push(p);
+          loanPmtsMap.set(lid, existing);
+        }
+      });
+
+      const combined = allPaymentsArray.map((p) => {
+        const rawLoan = localLoans.find((l) => l.id === p.loan_id) || p.loan;
+        const loanPayments = loanPmtsMap.get(String(p.loan_id).trim()) || (rawLoan?.loan_number ? loanPmtsMap.get(String(rawLoan.loan_number).trim()) : null) || [];
+        const loan = rawLoan ? { ...rawLoan, payments: loanPayments } : undefined;
+        return { ...p, loan };
+      });
+
+      setStorageItem('payments', allPaymentsArray.map(p => ({ ...p, loan: undefined })));
+      return combined;
     });
-
-    const allPaymentsArray = Array.from(mergedMap.values());
-    const loanPmtsMap = new Map<string, Payment[]>();
-    allPaymentsArray.forEach(p => {
-      if (p && p.loan_id) {
-        const lid = String(p.loan_id).trim();
-        const existing = loanPmtsMap.get(lid) || [];
-        existing.push(p);
-        loanPmtsMap.set(lid, existing);
-      }
-    });
-
-    const combined = allPaymentsArray.map((p) => {
-      const rawLoan = localLoans.find((l) => l.id === p.loan_id) || p.loan;
-      const loanPayments = loanPmtsMap.get(String(p.loan_id).trim()) || (rawLoan?.loan_number ? loanPmtsMap.get(String(rawLoan.loan_number).trim()) : null) || [];
-      const loan = rawLoan ? { ...rawLoan, payments: loanPayments } : undefined;
-      return { ...p, loan };
-    });
-
-    setStorageItem('payments', allPaymentsArray.map(p => ({ ...p, loan: undefined })));
-    dbQueryCache.set(cacheKey, { data: combined, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
-    return combined;
   },
 
   async recordPayment(paymentData: Omit<Payment, 'id' | 'created_at'>): Promise<Payment> {
@@ -2212,13 +2252,20 @@ export const db = {
         }
       }
 
-      const isFullyClosed = paymentData.payment_type === 'Full Settlement' || fin.totalBalanceDue <= 0 || fin.remainingPrincipal <= 0;
+      const isTargetingAll = !paymentData.disbursement_id;
+      const isFullyClosed = (fin.remainingPrincipal <= 0 && fin.totalBalanceDue <= 0) || (isTargetingAll && paymentData.payment_type === 'Full Settlement');
       if (isFullyClosed) {
         targetLoan.status = 'Closed';
         targetLoan.closed_date = new Date().toISOString().split('T')[0];
         targetLoan.total_principal_outstanding = 0;
         targetLoan.total_balance_due = 0;
         targetLoan.accrued_interest = 0;
+      } else {
+        targetLoan.status = targetLoan.status === 'Auctioned' ? 'Auctioned' : (fin.isOverdue ? 'Overdue' : 'Active');
+        targetLoan.closed_date = undefined;
+        targetLoan.total_principal_outstanding = fin.remainingPrincipal;
+        targetLoan.total_balance_due = fin.totalBalanceDue;
+        targetLoan.accrued_interest = fin.netAccruedInterest;
       }
 
       // Persist updated loan financials directly to central Supabase loans table
@@ -2232,7 +2279,7 @@ export const db = {
               total_balance_due: isFullyClosed ? 0 : fin.totalBalanceDue,
               total_principal_outstanding: isFullyClosed ? 0 : fin.remainingPrincipal,
               status: isFullyClosed ? 'Closed' : targetLoan.status,
-              ...(isFullyClosed ? { closed_date: new Date().toISOString().split('T')[0] } : {}),
+              closed_date: isFullyClosed ? new Date().toISOString().split('T')[0] : null,
             })
             .or(`id.eq.${targetLoan.id},loan_number.eq.${targetLoan.id}`);
         } catch (err) {
@@ -2254,20 +2301,28 @@ export const db = {
   },
 
   // ── Dashboard Metrics API ──────────────────────────────────
-  async getDashboardMetrics(shopId: string): Promise<DashboardMetrics> {
+  async getDashboardMetrics(
+    shopId: string,
+    prefetchedLoans?: Loan[],
+    prefetchedGoldItems?: GoldItem[],
+    prefetchedPayments?: Payment[],
+    prefetchedShop?: Shop | null
+  ): Promise<DashboardMetrics> {
     if (!shopId) return {} as DashboardMetrics;
 
     const cacheKey = `dashboard_metrics_${shopId}`;
-    const cached = dbQueryCache.get(cacheKey);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.data;
+    if (!prefetchedLoans && !prefetchedGoldItems && !prefetchedPayments && prefetchedShop === undefined) {
+      const cached = dbQueryCache.get(cacheKey);
+      if (cached && cached.expiresAt > Date.now()) {
+        return cached.data;
+      }
     }
 
     const [loans, goldItems, payments, shop] = await Promise.all([
-      this.getLoans(shopId),
-      this.getGoldItems(shopId),
-      this.getPayments(shopId),
-      this.getShop(shopId),
+      prefetchedLoans ? Promise.resolve(prefetchedLoans) : this.getLoans(shopId),
+      prefetchedGoldItems ? Promise.resolve(prefetchedGoldItems) : this.getGoldItems(shopId),
+      prefetchedPayments ? Promise.resolve(prefetchedPayments) : this.getPayments(shopId),
+      prefetchedShop !== undefined ? Promise.resolve(prefetchedShop) : this.getShop(shopId),
     ]);
 
     const activeLoans = loans.filter(l => l.status === 'Active' || l.status === 'Overdue');

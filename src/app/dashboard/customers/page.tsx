@@ -6,10 +6,20 @@
 // ========================================================
 
 import React, { useState, useEffect, useRef } from 'react';
+import dynamic from 'next/dynamic';
 import { Printer, FileSpreadsheet, Users, Plus, Search, ShieldCheck, FileCheck, Phone, MapPin, X, Camera, Zap, Eye, Image as ImageIcon, Coins, Lock, Edit2, Save, CheckCircle2, Download, Loader2 } from 'lucide-react';
 import DashboardLayout from '../../../components/DashboardLayout';
-import { DocumentCameraUpload } from '../../../components/ui/DocumentCameraUpload';
-import { CreateGoldLoanModal } from '../../../components/CreateGoldLoanModal';
+
+const DocumentCameraUpload = dynamic(
+  () => import('../../../components/ui/DocumentCameraUpload').then(m => m.DocumentCameraUpload),
+  { ssr: false, loading: () => <div className="p-4 text-center text-xs text-slate-400 font-medium">Loading Camera...</div> }
+);
+
+const CreateGoldLoanModal = dynamic(
+  () => import('../../../components/CreateGoldLoanModal').then(m => m.CreateGoldLoanModal),
+  { ssr: false }
+);
+
 import { db } from '../../../lib/supabase/supabaseDb';
 import { getSessionUser } from '../../../lib/supabase/client';
 import { logAuditEvent } from '../../../lib/auditLog';
@@ -27,8 +37,16 @@ export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [previewDocModal, setPreviewDocModal] = useState<{ title: string; url: string } | null>(null);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   // Customer Submission Locks & Progress State
   const isSubmittingCustomerRef = useRef(false);
@@ -371,14 +389,14 @@ export default function CustomersPage() {
   };
 
   const filtered = React.useMemo(() => {
-    const query = search.toLowerCase().trim();
+    const query = debouncedSearch.toLowerCase().trim();
     if (!query) return customers;
     return customers.filter((c) =>
       (c.full_name && c.full_name.toLowerCase().includes(query)) ||
       (c.mobile_number && c.mobile_number.includes(query)) ||
       (c.aadhaar_number && c.aadhaar_number.includes(query))
     );
-  }, [customers, search]);
+  }, [customers, debouncedSearch]);
 
   const handleExportExcel = () => {
     const dataToExport = filtered.length > 0 ? filtered : customers;

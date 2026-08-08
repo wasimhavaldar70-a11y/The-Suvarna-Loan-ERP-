@@ -46,7 +46,13 @@ import {
 import DashboardLayout from '../../components/DashboardLayout';
 import { TouchCard } from '../../components/ui/TouchCard';
 import { LoadingButton } from '../../components/ui/LoadingButton';
-import { CreateGoldLoanModal } from '../../components/CreateGoldLoanModal';
+import dynamic from 'next/dynamic';
+
+const CreateGoldLoanModal = dynamic(
+  () => import('../../components/CreateGoldLoanModal').then(m => m.CreateGoldLoanModal),
+  { ssr: false }
+);
+
 import { db, clearDbCache, setupRealtimeSync } from '../../lib/supabase/supabaseDb';
 import { getSessionUser } from '../../lib/supabase/client';
 import { DashboardMetrics, Loan, Customer, GoldItem } from '../../types';
@@ -93,12 +99,16 @@ export default function DashboardPage() {
         return;
       }
 
-      const [mets, lnList, custList, goldList] = await Promise.all([
-        db.getDashboardMetrics(activeShopId),
+      // Fetch all collections in parallel for maximum speed
+      const [lnList, custList, goldList, pmtList, shopInfo] = await Promise.all([
         db.getLoans(activeShopId),
         db.getCustomers(activeShopId),
         db.getGoldItems(activeShopId),
+        db.getPayments(activeShopId),
+        db.getShop(activeShopId),
       ]);
+
+      const mets = await db.getDashboardMetrics(activeShopId, lnList, goldList, pmtList, shopInfo);
 
       setMetrics(mets);
       setLoans(lnList);

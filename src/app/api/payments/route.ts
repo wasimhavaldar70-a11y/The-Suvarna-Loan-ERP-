@@ -165,29 +165,75 @@ export async function POST(request: NextRequest) {
       }, { status: 500 });
     }
 
-    // 3. Atomically update loan balances, interest, and status in central database
+    // 3. Atomically update disbursement and loan balances, interest, and status in central database
     if (targetLoan) {
-      const existingPmts = (targetLoan.payments || []).map((p: any) => ({ ...p, amount: Number(p.amount) || 0 }));
-      if (!existingPmts.some((p: any) => p.id === insertedPayment.id)) {
-        existingPmts.push(insertedPayment);
+      // 3a. Update specific disbursement if disbursement_id or disbursement_number is specified
+      let targetedDisb: any = null;
+      if (disbursement_id || disbursement_number !== undefined) {
+        let disbQuery = supabaseServer.from('loan_disbursements').select('*');
+        if (disbursement_id) {
+          disbQuery = disbQuery.eq('id', disbursement_id);
+        } else if (disbursement_number !== undefined) {
+          disbQuery = disbQuery.eq('loan_id', targetLoan.id).eq('disbursement_number', Number(disbursement_number));
+        }
+        const { data: disbRows } = await disbQuery.limit(1);
+        if (disbRows && disbRows.length > 0) {
+          targetedDisb = disbRows[0];
+        }
       }
 
-      const totalPaid = existingPmts.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0);
-      const principal = Number(targetLoan.loan_amount) || 0;
-      const remainingPrincipal = Math.max(0, principal - (normalizedPaymentType === 'Interest Payment' ? 0 : numAmount));
-      const isClosed = normalizedPaymentType === 'Full Settlement' || remainingPrincipal <= 0;
+      if (targetedDisb) {
+        const currentDisbPrincipal = Number(targetedDisb.principal_outstanding ?? targetedDisb.amount) || 0;
+        const disbRemainingPrincipal = normalizedPaymentType === 'Full Settlement'
+          ? 0
+          : Math.max(0, currentDisbPrincipal - (normalizedPaymentType === 'Interest Payment' ? 0 : numAmount));
+        const isDisbSettled = normalizedPaymentType === 'Full Settlement' || disbRemainingPrincipal <= 0;
+
+        await supabaseServer
+          .from('loan_disbursements')
+          .update({
+            principal_outstanding: disbRemainingPrincipal,
+            total_interest_paid: (Number(targetedDisb.total_interest_paid) || 0) + (normalizedPaymentType === 'Interest Payment' ? numAmount : 0),
+            status: isDisbSettled ? 'Settled' : 'Active',
+            updated_at: nowIso,
+          })
+          .eq('id', targetedDisb.id);
+      }
+
+      // 3b. Fetch all active disbursements for this loan to aggregate total remaining exposure
+      const { data: allDisbursements } = await supabaseServer
+        .from('loan_disbursements')
+        .select('*')
+        .eq('loan_id', targetLoan.id);
+
+      let totalRemainingPrincipal = 0;
+      let allDisbursementsSettled = false;
+
+      if (allDisbursements && allDisbursements.length > 0) {
+        totalRemainingPrincipal = allDisbursements.reduce((sum: number, d: any) => {
+          return sum + (Number(d.principal_outstanding) || 0);
+        }, 0);
+        allDisbursementsSettled = allDisbursements.every((d: any) => {
+          return (Number(d.principal_outstanding) || 0) <= 0 || d.status === 'Settled';
+        });
+      } else {
+        // Fallback for single-disbursement legacy loans
+        const singlePrincipal = Number(targetLoan.loan_amount) || 0;
+        totalRemainingPrincipal = Math.max(0, singlePrincipal - (normalizedPaymentType === 'Interest Payment' ? 0 : numAmount));
+        allDisbursementsSettled = normalizedPaymentType === 'Full Settlement' || totalRemainingPrincipal <= 0;
+      }
+
+      // The overall loan/security/account can ONLY be marked CLOSED when ALL active disbursements linked to that loan have been completely settled (total outstanding = 0)
+      const isOverallLoanClosed = allDisbursementsSettled && totalRemainingPrincipal <= 0;
 
       const loanUpdatePayload: Record<string, any> = {
         total_interest_paid: (Number(targetLoan.total_interest_paid) || 0) + (normalizedPaymentType === 'Interest Payment' ? numAmount : 0),
-        total_balance_due: isClosed ? 0 : Math.max(0, (Number(targetLoan.total_balance_due) || principal) - numAmount),
-        total_principal_outstanding: isClosed ? 0 : remainingPrincipal,
-        status: isClosed ? 'Closed' : targetLoan.status,
+        total_balance_due: isOverallLoanClosed ? 0 : Math.max(0, totalRemainingPrincipal),
+        total_principal_outstanding: isOverallLoanClosed ? 0 : totalRemainingPrincipal,
+        status: isOverallLoanClosed ? 'Closed' : (targetLoan.status === 'Auctioned' ? 'Auctioned' : 'Active'),
+        closed_date: isOverallLoanClosed ? cleanDate : null,
         updated_at: nowIso,
       };
-
-      if (isClosed) {
-        loanUpdatePayload.closed_date = cleanDate;
-      }
 
       const { error: loanUpdateErr } = await supabaseServer
         .from('loans')
@@ -195,23 +241,11 @@ export async function POST(request: NextRequest) {
         .eq('id', targetLoan.id);
 
       if (loanUpdateErr) {
-        // Fallback update without total_principal_outstanding if not present
         delete loanUpdatePayload.total_principal_outstanding;
         await supabaseServer
           .from('loans')
           .update(loanUpdatePayload)
           .eq('id', targetLoan.id);
-      }
-
-      if (disbursement_id) {
-        await supabaseServer
-          .from('loan_disbursements')
-          .update({
-            principal_outstanding: isClosed ? 0 : remainingPrincipal,
-            status: isClosed ? 'Settled' : 'Active',
-            updated_at: nowIso,
-          })
-          .eq('id', disbursement_id);
       }
     }
 

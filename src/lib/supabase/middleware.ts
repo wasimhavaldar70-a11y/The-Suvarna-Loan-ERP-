@@ -77,29 +77,30 @@ export async function updateSession(request: NextRequest) {
   let user: any = null;
   let userRole: string | undefined = undefined;
 
-  try {
-    const { data } = await supabase.auth.getUser();
-    if (data?.user) {
-      user = data.user;
-      userRole = user.user_metadata?.role;
+  // 1. Fast path: Check suvarna_session cookie for instant 0ms validation
+  const suvarnaCookie = request.cookies.get('suvarna_session')?.value;
+  if (suvarnaCookie) {
+    try {
+      const parsed = JSON.parse(decodeURIComponent(suvarnaCookie));
+      if (parsed?.user?.id) {
+        user = parsed.user;
+        userRole = parsed.user.role;
+      }
+    } catch (err) {
+      console.warn('Middleware suvarna_session cookie parse warning:', err);
     }
-  } catch (err) {
-    console.warn('Middleware auth.getUser warning:', err);
   }
 
-  // Fallback: Support suvarna_session cookie
+  // 2. Secondary path: Verify with Supabase Auth server client if no valid cookie
   if (!user) {
-    const suvarnaCookie = request.cookies.get('suvarna_session')?.value;
-    if (suvarnaCookie) {
-      try {
-        const parsed = JSON.parse(decodeURIComponent(suvarnaCookie));
-        if (parsed?.user?.id) {
-          user = parsed.user;
-          userRole = parsed.user.role;
-        }
-      } catch (err) {
-        console.warn('Middleware suvarna_session cookie parse warning:', err);
+    try {
+      const { data } = await supabase.auth.getUser();
+      if (data?.user) {
+        user = data.user;
+        userRole = user.user_metadata?.role;
       }
+    } catch (err) {
+      console.warn('Middleware auth.getUser warning:', err);
     }
   }
 

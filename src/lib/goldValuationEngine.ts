@@ -195,7 +195,7 @@ export function calculateDisbursementFinancials(
   let totalInterestPaid = 0;
   let totalPrincipalPaid = 0;
 
-  // Filter payments specifically for this tranche if allocated, or general payments
+  // Filter payments strictly for this tranche if allocated, or general payments
   const relevantPayments = payments.filter(p => {
     if (disbursement.id && p.disbursement_id) {
       return p.disbursement_id === disbursement.id;
@@ -203,7 +203,7 @@ export function calculateDisbursementFinancials(
     if (disbursement.disbursement_number && p.disbursement_number) {
       return p.disbursement_number === disbursement.disbursement_number;
     }
-    return !p.disbursement_id && !p.disbursement_number; // general payment shared proportionally
+    return !p.disbursement_id && !p.disbursement_number; // unallocated general payment
   });
 
   const sortedPayments = [...relevantPayments].sort((a, b) => {
@@ -328,7 +328,7 @@ export function calculateLoanFinancials(
     const maxOverdueDays = Math.max(0, ...trancheMetrics.map(t => t.overdueDays));
     const isAuctionEligible = maxOverdueDays > 30 && totalRemainingPrincipal > 0;
 
-    const earliestDate = trancheMetrics.reduce((min, t) => t.disbursementDate < min ? t.disbursementDate : min, trancheMetrics[0].disbursementDate);
+    const earliestDate = trancheMetrics.reduce((min, t) => t.disbursementDate < min ? t.disbursementDate : min, trancheMetrics[0]?.disbursementDate || new Date().toISOString().split('T')[0]);
     const diffTime = Math.max(0, new Date().getTime() - new Date(earliestDate).getTime()) || 0;
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 0;
     const diffMonths = Math.max(1, Math.ceil(diffDays / 30)) || 1;

@@ -26,6 +26,14 @@ export default function PaymentsPage() {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const loadData = async (isInitial = false) => {
     if (isInitial && payments.length === 0 && loans.length === 0) {
@@ -91,7 +99,7 @@ export default function PaymentsPage() {
   }, [loans, payments]);
 
   const filtered = useMemo(() => {
-    const query = search.toLowerCase().trim();
+    const query = debouncedSearch.toLowerCase().trim();
     if (!query) return payments;
     return payments.filter(
       (p) =>
@@ -101,7 +109,7 @@ export default function PaymentsPage() {
         (p.loan?.loan_number && p.loan.loan_number.toLowerCase().includes(query)) ||
         (p.notes && p.notes.toLowerCase().includes(query))
     );
-  }, [payments, search]);
+  }, [payments, debouncedSearch]);
 
   const handleExport = () => {
     const rows = filtered.map((p) => ({

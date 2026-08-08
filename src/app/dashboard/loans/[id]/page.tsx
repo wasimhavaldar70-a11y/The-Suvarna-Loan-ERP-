@@ -81,7 +81,6 @@ export default function LoanDetailPage({ params }: { params: Promise<{ id: strin
     if (isInitial && !loan) {
       setLoading(true);
     }
-    clearDbCache();
     const session = getSessionUser();
     const activeShopId = session?.user?.shop_id || session?.shop?.id || '';
     const data = await db.getLoanById(resolvedParams.id, activeShopId);

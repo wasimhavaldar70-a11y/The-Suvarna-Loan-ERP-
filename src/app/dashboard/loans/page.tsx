@@ -7,11 +7,17 @@
 // ========================================================
 
 import React, { useState, useEffect, useMemo } from 'react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { Printer, Coins, Plus, Search, Filter, FileSpreadsheet, Eye, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import DashboardLayout from '../../../components/DashboardLayout';
-import { CreateGoldLoanModal } from '../../../components/CreateGoldLoanModal';
+
+const CreateGoldLoanModal = dynamic(
+  () => import('../../../components/CreateGoldLoanModal').then(m => m.CreateGoldLoanModal),
+  { ssr: false }
+);
+
 import { db, setupRealtimeSync, clearDbCache } from '../../../lib/supabase/supabaseDb';
 import { getSessionUser } from '../../../lib/supabase/client';
 import { Loan } from '../../../types';
@@ -26,8 +32,16 @@ export default function LoansPage() {
   const [loans, setLoans] = useState<Loan[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
   const [createLoanModalOpen, setCreateLoanModalOpen] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 150);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   const loadLoans = (isInitial = false) => {
     if (isInitial && loans.length === 0) {
@@ -68,7 +82,7 @@ export default function LoansPage() {
   }, []);
 
   const filtered = useMemo(() => {
-    const query = search.toLowerCase().trim();
+    const query = debouncedSearch.toLowerCase().trim();
     return loans.filter((l) => {
       const cust = l.customer?.full_name || '';
       const mobile = l.customer?.mobile_number || '';
@@ -82,7 +96,7 @@ export default function LoansPage() {
           : l.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
-  }, [loans, search, statusFilter]);
+  }, [loans, debouncedSearch, statusFilter]);
 
   const handleExport = () => {
     const loansToExport = filtered.length > 0

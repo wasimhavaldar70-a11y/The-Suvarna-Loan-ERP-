@@ -149,18 +149,53 @@ export function RecordRepaymentModal({
         disbursement_number: isTargetingAll ? undefined : activeTrancheNum,
       });
 
-      const updatedRemainingPrincipal = Math.max(0, combinedFin.remainingPrincipal - (paymentType === 'Interest Payment' ? 0 : paymentAmount));
-      const isClosed = paymentType === 'Full Settlement' || updatedRemainingPrincipal <= 0;
+      // Calculate if the entire loan is closed vs only an individual disbursement tranche
+      let isOverallLoanClosed = false;
+      const allTranches = loan.disbursements || [];
 
-      toast.success(
-        isMarathi
-          ? `भरणा ${formatCurrency(paymentAmount)} यशस्वीरित्या नोंदविण्यात आला! (पावती #${savedPmt.receipt_number})`
-          : `Repayment of ${formatCurrency(paymentAmount)} recorded successfully! (Receipt #${savedPmt.receipt_number})`
-      );
+      if (!isTargetingAll && activeTranche) {
+        const thisTrancheRemaining = paymentType === 'Full Settlement'
+          ? 0
+          : Math.max(0, activeFin.remainingPrincipal - (paymentType === 'Interest Payment' ? 0 : paymentAmount));
+        
+        const otherTranchesRemaining = allTranches
+          .filter(t => t.id !== selectedTrancheId && (t.disbursement_number !== activeTrancheNum))
+          .reduce((sum, t) => {
+            const tFin = calculateDisbursementFinancials(t, loan.payments || [], loan.repayment_model || 'Bullet Repayment');
+            return sum + (t.principal_outstanding !== undefined ? Number(t.principal_outstanding) : tFin.remainingPrincipal);
+          }, 0);
+
+        // Overall loan closes ONLY if this tranche AND all other linked disbursements reach ₹0
+        isOverallLoanClosed = (thisTrancheRemaining <= 0) && (otherTranchesRemaining <= 0);
+      } else {
+        const updatedRemainingPrincipal = Math.max(0, combinedFin.remainingPrincipal - (paymentType === 'Interest Payment' ? 0 : paymentAmount));
+        isOverallLoanClosed = paymentType === 'Full Settlement' || updatedRemainingPrincipal <= 0;
+      }
+
+      if (isOverallLoanClosed) {
+        toast.success(
+          isMarathi
+            ? `संपूर्ण कर्ज खाते (सर्व वितरण टप्पे) यशस्वीरित्या पूर्णपणे बंद झाले! (पावती #${savedPmt.receipt_number})`
+            : `Entire Loan Account (All Disbursements) settled & closed in full! (Receipt #${savedPmt.receipt_number})`
+        );
+      } else if (!isTargetingAll && activeTranche) {
+        const isTrancheSettled = paymentType === 'Full Settlement' || Math.max(0, activeFin.remainingPrincipal - paymentAmount) <= 0;
+        toast.success(
+          isMarathi
+            ? `वितरण टप्पा #${activeTrancheNum} ${isTrancheSettled ? 'पूर्णपणे भरणा झाला (टप्पा बंद)' : 'भरणा नोंदवला'}. मुख्य कर्ज खाते सक्रिय राहील. (पावती #${savedPmt.receipt_number})`
+            : `Disbursement #${activeTrancheNum} ${isTrancheSettled ? 'settled in full (Tranche Closed)' : 'repayment recorded'}. Overall Loan remains Active. (Receipt #${savedPmt.receipt_number})`
+        );
+      } else {
+        toast.success(
+          isMarathi
+            ? `भरणा ${formatCurrency(paymentAmount)} यशस्वीरित्या नोंदविण्यात आला! (पावती #${savedPmt.receipt_number})`
+            : `Repayment of ${formatCurrency(paymentAmount)} recorded successfully! (Receipt #${savedPmt.receipt_number})`
+        );
+      }
 
       if (sendWhatsApp) {
         const waMessage = generateWhatsAppMessageText(
-          isClosed ? 'LOAN_CLOSURE' : 'REPAYMENT_RECEIPT',
+          isOverallLoanClosed ? 'LOAN_CLOSURE' : 'REPAYMENT_RECEIPT',
           { loan, payment: savedPmt, language }
         );
         sendWhatsAppAlert(loan.customer?.mobile_number, waMessage);
@@ -171,14 +206,14 @@ export function RecordRepaymentModal({
         );
       }
 
-      if (isClosed) {
+      if (isOverallLoanClosed) {
         await db.updateLoanStatus(loan.id, 'Closed');
       }
 
       onClose();
       if (onSuccess) onSuccess();
 
-      if (isClosed && onLoanClosed) {
+      if (isOverallLoanClosed && onLoanClosed) {
         onLoanClosed({ ...loan, status: 'Closed' });
       }
     } catch (err) {

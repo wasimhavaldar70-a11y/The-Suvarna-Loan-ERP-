@@ -292,10 +292,12 @@ export async function uploadGoldImages(
 }
 
 const signedUrlCache = new Map<string, { url: string; expiresAt: number }>();
+const inFlightSignedUrlPromises = new Map<string, Promise<string>>();
 
 /**
  * Generates a temporary Signed URL (30 minutes default) for displaying documents.
  * Checks both Uploaded-Documents and legacy customer-documents buckets.
+ * Includes instant in-memory cache and in-flight request deduplication.
  */
 export async function getSignedDocumentUrl(
   shopId: string | undefined,
@@ -307,7 +309,7 @@ export async function getSignedDocumentUrl(
   }
 
   // Strip existing token or query parameters if present
-  let cleanPath = storagePath.split('?')[0];
+  const cleanPath = storagePath.split('?')[0];
 
   // 1. Check In-Memory Signed URL Cache
   const cached = signedUrlCache.get(cleanPath);
@@ -315,44 +317,58 @@ export async function getSignedDocumentUrl(
     return cached.url;
   }
 
-  let bucketToUse = BUCKET_NAME;
-  let relativePath = cleanPath;
-
-  if (cleanPath.includes(`/${BUCKET_NAME}/`)) {
-    relativePath = cleanPath.split(`/${BUCKET_NAME}/`)[1];
-  } else if (cleanPath.includes(`/${LEGACY_BUCKET_NAME}/`)) {
-    bucketToUse = LEGACY_BUCKET_NAME;
-    relativePath = cleanPath.split(`/${LEGACY_BUCKET_NAME}/`)[1];
-  } else if (cleanPath.includes('Uploaded-Documents/')) {
-    relativePath = cleanPath.split('Uploaded-Documents/')[1];
-  } else if (cleanPath.includes('customer-documents/')) {
-    bucketToUse = LEGACY_BUCKET_NAME;
-    relativePath = cleanPath.split('customer-documents/')[1];
-  } else if (cleanPath.startsWith('/')) {
-    relativePath = cleanPath.substring(1);
+  // 2. In-Flight Request Coalescing (Eliminates duplicate storage network calls)
+  if (inFlightSignedUrlPromises.has(cleanPath)) {
+    return inFlightSignedUrlPromises.get(cleanPath)!;
   }
 
-  if (isRealSupabase && supabase) {
-    try {
-      const { data, error } = await supabase.storage
-        .from(bucketToUse)
-        .createSignedUrl(relativePath, expiresInSeconds);
+  const promise = (async () => {
+    let bucketToUse = BUCKET_NAME;
+    let relativePath = cleanPath;
 
-      if (!error && data?.signedUrl) {
-        // Cache the signed URL for 50% of the expiry duration or 12 hours
-        const ttlMs = Math.min(expiresInSeconds * 1000 * 0.5, 12 * 60 * 60 * 1000);
-        signedUrlCache.set(cleanPath, {
-          url: data.signedUrl,
-          expiresAt: Date.now() + ttlMs,
-        });
-        return data.signedUrl;
-      }
-    } catch (err) {
-      console.warn(`getSignedDocumentUrl (${bucketToUse}/${relativePath}) warning:`, err);
+    if (cleanPath.includes(`/${BUCKET_NAME}/`)) {
+      relativePath = cleanPath.split(`/${BUCKET_NAME}/`)[1];
+    } else if (cleanPath.includes(`/${LEGACY_BUCKET_NAME}/`)) {
+      bucketToUse = LEGACY_BUCKET_NAME;
+      relativePath = cleanPath.split(`/${LEGACY_BUCKET_NAME}/`)[1];
+    } else if (cleanPath.includes('Uploaded-Documents/')) {
+      relativePath = cleanPath.split('Uploaded-Documents/')[1];
+    } else if (cleanPath.includes('customer-documents/')) {
+      bucketToUse = LEGACY_BUCKET_NAME;
+      relativePath = cleanPath.split('customer-documents/')[1];
+    } else if (cleanPath.startsWith('/')) {
+      relativePath = cleanPath.substring(1);
     }
-  }
 
-  return storagePath;
+    if (isRealSupabase && supabase) {
+      try {
+        const { data, error } = await supabase.storage
+          .from(bucketToUse)
+          .createSignedUrl(relativePath, expiresInSeconds);
+
+        if (!error && data?.signedUrl) {
+          // Cache the signed URL for 50% of the expiry duration or 12 hours
+          const ttlMs = Math.min(expiresInSeconds * 1000 * 0.5, 12 * 60 * 60 * 1000);
+          signedUrlCache.set(cleanPath, {
+            url: data.signedUrl,
+            expiresAt: Date.now() + ttlMs,
+          });
+          return data.signedUrl;
+        }
+      } catch (err) {
+        console.warn(`getSignedDocumentUrl (${bucketToUse}/${relativePath}) warning:`, err);
+      }
+    }
+
+    return storagePath;
+  })();
+
+  inFlightSignedUrlPromises.set(cleanPath, promise);
+  try {
+    return await promise;
+  } finally {
+    inFlightSignedUrlPromises.delete(cleanPath);
+  }
 }
 
 /**
