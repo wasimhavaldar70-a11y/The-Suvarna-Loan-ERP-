@@ -2,6 +2,7 @@
 
 // ========================================================
 // SuvarnaLoan ERP - Camera & WebP Document Upload Component
+// Supports English & Bank-Grade Marathi Localization
 // Location: src/components/ui/DocumentCameraUpload.tsx
 // ========================================================
 
@@ -9,6 +10,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Eye, Camera, Upload, Trash2, CheckCircle2, X, RefreshCw, Zap } from 'lucide-react';
 import { compressImageToWebP, CompressedImageResult } from '../../lib/imageCompressor';
 import { toast } from 'sonner';
+import { useTranslation } from '../../providers/LanguageProvider';
 
 interface DocumentCameraUploadProps {
   label: string;
@@ -25,6 +27,8 @@ export function DocumentCameraUpload({
   onChange,
   aspectRatio = 'card',
 }: DocumentCameraUploadProps) {
+  const { dict, language, isMarathi } = useTranslation();
+
   const [compressing, setCompressing] = useState(false);
   const [cameraModalOpen, setCameraModalOpen] = useState(false);
   const [previewModalOpen, setPreviewModalOpen] = useState(false);
@@ -55,7 +59,7 @@ export function DocumentCameraUpload({
       }
     } catch (err) {
       console.error('Camera access error:', err);
-      toast.error('Unable to access device camera. Please check permissions or upload a file.');
+      toast.error(isMarathi ? 'कॅमेरा सुरू करता आला नाही. कृपया परवानगी तपासा किंवा फाइल अपलोड करा.' : 'Unable to access device camera. Please check permissions or upload a file.');
       setCameraModalOpen(false);
     }
   };
@@ -88,7 +92,7 @@ export function DocumentCameraUpload({
   const processAndSetImage = async (input: File | string) => {
     if (typeof input !== 'string' && input instanceof File) {
       if (!input.type.startsWith('image/')) {
-        toast.error('Only image files are allowed');
+        toast.error(isMarathi ? 'केवळ इमेज (छायाचित्र) फाइल्स स्वीकारल्या जातात.' : 'Only image files are allowed');
         return;
       }
     }
@@ -99,10 +103,10 @@ export function DocumentCameraUpload({
       onChange(res.dataUrl);
       setSizeBadge(res.formattedSize);
       setReductionBadge(res.reductionPercentage);
-      toast.success(`Image auto-compressed by ${res.reductionPercentage}% to WebP!`);
+      toast.success(isMarathi ? `फोटो ${res.reductionPercentage}% कॉम्प्रेस होऊन WebP मध्ये जतन झाला!` : `Image auto-compressed by ${res.reductionPercentage}% to WebP!`);
     } catch (err) {
       console.error('Compression error:', err);
-      toast.error('Failed to compress image');
+      toast.error(isMarathi ? 'इमेज कॉम्प्रेस करण्यात त्रुटी' : 'Failed to compress image');
     } finally {
       setCompressing(false);
     }
@@ -121,7 +125,7 @@ export function DocumentCameraUpload({
   }, []);
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5 font-sans">
       <div className="flex items-center justify-between">
         <label className="block text-xs font-bold text-slate-700">
           {label} {required && <span className="text-rose-500">*</span>}
@@ -129,7 +133,7 @@ export function DocumentCameraUpload({
         {sizeBadge && (
           <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 flex items-center gap-1">
             <Zap className="w-3 h-3 text-emerald-600" />
-            <span>WebP {sizeBadge} ({reductionBadge}% smaller)</span>
+            <span>WebP {sizeBadge} ({reductionBadge}% {isMarathi ? 'लहान' : 'smaller'})</span>
           </span>
         )}
       </div>
@@ -145,7 +149,9 @@ export function DocumentCameraUpload({
       {compressing ? (
         <div className="h-32 border-2 border-dashed border-amber-300 rounded-xl bg-amber-50/40 flex flex-col items-center justify-center p-4">
           <RefreshCw className="w-6 h-6 text-amber-600 animate-spin mb-2" />
-          <span className="text-xs font-bold text-amber-900">Auto-compressing 90% WebP...</span>
+          <span className="text-xs font-bold text-amber-900">
+            {isMarathi ? 'स्वयंचलित ९०% WebP कॉम्प्रेशन सुरू आहे...' : 'Auto-compressing 90% WebP...'}
+          </span>
         </div>
       ) : value ? (
         /* Image Preview Box */
@@ -162,21 +168,21 @@ export function DocumentCameraUpload({
               className="px-2 py-1.5 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-lg text-xs font-black flex items-center gap-1 shadow-2xs"
               title="View Full Resolution Image"
             >
-              <Eye className="w-3.5 h-3.5" /> View
+              <Eye className="w-3.5 h-3.5" /> {dict.common.view}
             </button>
             <button
               type="button"
               onClick={openCameraModal}
               className="px-2 py-1.5 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-xs font-bold flex items-center gap-1 border border-slate-700"
             >
-              <Camera className="w-3.5 h-3.5" /> Retake
+              <Camera className="w-3.5 h-3.5" /> {isMarathi ? 'पुन्हा फोटो घ्या' : 'Retake'}
             </button>
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
               className="px-2 py-1.5 bg-white text-slate-900 rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-slate-100"
             >
-              <Upload className="w-3.5 h-3.5" /> Upload
+              <Upload className="w-3.5 h-3.5" /> {dict.customer.uploadImage}
             </button>
             <button
               type="button"
@@ -196,13 +202,13 @@ export function DocumentCameraUpload({
               title="View Image"
             >
               <Eye className="w-3 h-3 text-amber-400" />
-              <span>View</span>
+              <span>{dict.common.view}</span>
             </button>
           </div>
 
           <div className="absolute bottom-1.5 left-1.5 bg-slate-950/80 text-white text-[10px] font-bold px-2 py-0.5 rounded-md backdrop-blur-xs flex items-center gap-1">
             <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-            <span>Ready</span>
+            <span>{isMarathi ? 'तयार' : 'Ready'}</span>
           </div>
         </div>
       ) : (
@@ -215,7 +221,7 @@ export function DocumentCameraUpload({
               className="w-full sm:flex-1 min-h-[44px] py-2.5 px-3 bg-amber-500/10 text-amber-800 hover:bg-amber-500/20 border border-amber-300 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-2xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
             >
               <Camera className="w-4 h-4 text-amber-700 shrink-0" />
-              <span>Take Photo (Camera)</span>
+              <span>{dict.customer.takePhotoCamera}</span>
             </button>
 
             <button
@@ -224,11 +230,11 @@ export function DocumentCameraUpload({
               className="w-full sm:flex-1 min-h-[44px] py-2.5 px-3 bg-white text-slate-700 hover:bg-slate-100 border border-slate-200 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-colors shadow-2xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
             >
               <Upload className="w-4 h-4 text-slate-600 shrink-0" />
-              <span>Upload Image</span>
+              <span>{dict.customer.uploadImage}</span>
             </button>
           </div>
           <p className="text-[10px] text-center text-slate-400 mt-2 font-medium">
-            Auto-converts JPEG/PNG to 90% compressed WebP for instant loading
+            {dict.customer.autoConvertHelper}
           </p>
         </div>
       )}
@@ -240,7 +246,9 @@ export function DocumentCameraUpload({
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
               <div className="flex items-center gap-2 text-amber-400">
                 <Camera className="w-5 h-5" />
-                <h3 className="text-sm font-bold text-white">Capture {label}</h3>
+                <h3 className="text-sm font-bold text-white">
+                  {isMarathi ? `फोटो घ्या: ${label}` : `Capture ${label}`}
+                </h3>
               </div>
               <button
                 onClick={() => {
@@ -253,62 +261,64 @@ export function DocumentCameraUpload({
               </button>
             </div>
 
-            <div className="my-4 relative bg-black rounded-xl overflow-hidden aspect-video flex items-center justify-center border border-slate-800">
+            <div className="my-4 rounded-xl overflow-hidden bg-black border border-slate-800 aspect-video flex items-center justify-center relative">
               <video
                 ref={videoRef}
                 autoPlay
                 playsInline
+                muted
                 className="w-full h-full object-cover"
               />
             </div>
 
-            <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+            <div className="flex items-center justify-between gap-3 pt-2 border-t border-slate-800">
               <button
                 type="button"
                 onClick={() => {
                   stopCameraStream();
                   setCameraModalOpen(false);
                 }}
-                className="min-h-[44px] px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white focus:ring-2 focus:ring-slate-500 focus:outline-none rounded-xl"
+                className="px-4 py-2 text-xs font-bold text-slate-400 hover:text-white min-h-[44px]"
               >
-                Cancel
+                {dict.common.cancel}
               </button>
 
               <button
                 type="button"
                 onClick={handleCaptureSnapshot}
-                className="min-h-[44px] px-6 py-2.5 bg-gradient-to-r from-amber-500 to-amber-400 text-slate-950 font-bold text-xs rounded-xl hover:brightness-105 shadow-md gold-glow flex items-center gap-2 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                className="px-6 py-2.5 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl shadow-lg gold-glow flex items-center gap-2 min-h-[44px]"
               >
-                <Camera className="w-4 h-4 shrink-0" />
-                <span>Capture & Compress</span>
+                <Camera className="w-4 h-4" />
+                <span>{isMarathi ? 'फोटो क्लिक करा' : 'Snap Photo'}</span>
               </button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Image Preview Modal */}
-      {previewModalOpen && value && (
-        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-xl w-full p-4 shadow-2xl text-white space-y-3">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="text-sm font-bold text-amber-400 flex items-center gap-2">
-                <Eye className="w-4 h-4" />
-                <span>{label} Preview</span>
-              </h3>
-              <button onClick={() => setPreviewModalOpen(false)} className="text-slate-400 hover:text-white p-1">
+      {/* Full Resolution Preview Modal */}
+      {previewModalOpen && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl max-w-2xl w-full p-4 text-white space-y-3">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+              <span className="text-xs font-bold text-amber-400">{label}</span>
+              <button
+                onClick={() => setPreviewModalOpen(false)}
+                className="text-slate-400 hover:text-white p-1"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="my-2 max-h-[70vh] overflow-hidden rounded-xl flex items-center justify-center bg-black">
-              <img src={value} alt={label} className="max-h-[65vh] w-auto object-contain" />
+            <div className="max-h-[70vh] overflow-auto flex items-center justify-center bg-black rounded-xl p-2">
+              <img src={value} alt={label} className="max-h-[65vh] w-auto object-contain rounded-lg" />
             </div>
-            <div className="flex justify-end pt-2">
+            <div className="flex justify-end">
               <button
+                type="button"
                 onClick={() => setPreviewModalOpen(false)}
-                className="px-4 py-1.5 bg-slate-800 text-xs font-bold rounded-xl text-white hover:bg-slate-700"
+                className="px-4 py-1.5 bg-slate-800 text-white rounded-lg text-xs font-bold hover:bg-slate-700"
               >
-                Close Preview
+                {dict.common.close}
               </button>
             </div>
           </div>

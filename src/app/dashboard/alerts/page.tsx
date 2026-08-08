@@ -56,8 +56,10 @@ import { exportToExcel } from '../../../lib/excel-export';
 import { exportToPDF } from '../../../lib/pdf-export';
 import { FileSpreadsheet } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from '../../../providers/LanguageProvider';
 
 export default function CustomerAlertsPage() {
+  const { dict, language, isMarathi } = useTranslation();
   const [loans, setLoans] = useState<Loan[]>([]);
   const [currentShop, setCurrentShop] = useState<Shop | null>(null);
   const [loading, setLoading] = useState(true);
@@ -192,14 +194,40 @@ export default function CustomerAlertsPage() {
   // PDF Printing and Downloading actions
   const handlePrintRepaymentReceipt = () => {
     if (!selectedLoan) return;
-    const html = generateRepaymentReceiptHTML({ loan: selectedLoan, shop: currentShop });
+    const latestPmt = selectedLoan.payments && selectedLoan.payments.length > 0 ? selectedLoan.payments[0] : {
+      id: `pmt-${selectedLoan.id}`,
+      shop_id: selectedLoan.shop_id,
+      loan_id: selectedLoan.id,
+      receipt_number: `REC-${selectedLoan.loan_number}`,
+      payment_date: selectedLoan.loan_date,
+      payment_type: 'Full Settlement',
+      payment_method: 'Cash',
+      amount: selectedLoan.loan_amount,
+      notes: 'Consolidated Repayment Voucher',
+      created_at: selectedLoan.created_at,
+      loan: selectedLoan,
+    } as any;
+    const html = generateRepaymentReceiptHTML(latestPmt, currentShop, 'en');
     printHTMLDocument(html);
     toast.success('Sent Repayment Receipt to browser print manager');
   };
 
   const handleDownloadRepaymentReceipt = () => {
     if (!selectedLoan) return;
-    const html = generateRepaymentReceiptHTML({ loan: selectedLoan, shop: currentShop });
+    const latestPmt = selectedLoan.payments && selectedLoan.payments.length > 0 ? selectedLoan.payments[0] : {
+      id: `pmt-${selectedLoan.id}`,
+      shop_id: selectedLoan.shop_id,
+      loan_id: selectedLoan.id,
+      receipt_number: `REC-${selectedLoan.loan_number}`,
+      payment_date: selectedLoan.loan_date,
+      payment_type: 'Full Settlement',
+      payment_method: 'Cash',
+      amount: selectedLoan.loan_amount,
+      notes: 'Consolidated Repayment Voucher',
+      created_at: selectedLoan.created_at,
+      loan: selectedLoan,
+    } as any;
+    const html = generateRepaymentReceiptHTML(latestPmt, currentShop, 'en');
     downloadHTMLDocument(html, `Repayment_Receipt_${selectedLoan.loan_number}.html`);
     toast.success('Downloaded Repayment Receipt file');
   };
@@ -258,17 +286,17 @@ export default function CustomerAlertsPage() {
   const closedCount = loans.filter((l) => l.status === 'Closed').length;
 
   const templatesList: { type: AlertType; label: string; icon: any; badgeColor: string }[] = [
-    { type: 'MONTHLY_DUE', label: 'Monthly Due & Interest', icon: Calendar, badgeColor: 'text-amber-700 bg-amber-50 border-amber-200' },
-    { type: 'REPAYMENT_RECEIPT', label: 'Payment Receipt', icon: Receipt, badgeColor: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
-    { type: 'LOAN_CLOSURE', label: 'Loan Closure Cert.', icon: FileCheck, badgeColor: 'text-sky-700 bg-sky-50 border-sky-200' },
-    { type: 'OVERDUE_ALERT', label: 'Urgent Overdue Alert', icon: AlertTriangle, badgeColor: 'text-rose-700 bg-rose-50 border-rose-200' },
-    { type: 'GOLD_RELEASE', label: 'Pledged Gold Release', icon: Lock, badgeColor: 'text-yellow-700 bg-yellow-50 border-yellow-200' },
-    { type: 'CUSTOM', label: 'Custom Alert Message', icon: MessageSquare, badgeColor: 'text-indigo-700 bg-indigo-50 border-indigo-200' },
+    { type: 'MONTHLY_DUE', label: isMarathi ? 'मासिक देय व व्याज' : 'Monthly Due & Interest', icon: Calendar, badgeColor: 'text-amber-700 bg-amber-50 border-amber-200' },
+    { type: 'REPAYMENT_RECEIPT', label: isMarathi ? 'परतफेड पावती' : 'Payment Receipt', icon: Receipt, badgeColor: 'text-emerald-700 bg-emerald-50 border-emerald-200' },
+    { type: 'LOAN_CLOSURE', label: isMarathi ? 'कर्ज बंद प्रमाणपत्र' : 'Loan Closure Cert.', icon: FileCheck, badgeColor: 'text-sky-700 bg-sky-50 border-sky-200' },
+    { type: 'OVERDUE_ALERT', label: isMarathi ? 'तातडीची थकीत सूचना' : 'Urgent Overdue Alert', icon: AlertTriangle, badgeColor: 'text-rose-700 bg-rose-50 border-rose-200' },
+    { type: 'GOLD_RELEASE', label: isMarathi ? 'तारण सोने सुटका' : 'Pledged Gold Release', icon: Lock, badgeColor: 'text-yellow-700 bg-yellow-50 border-yellow-200' },
+    { type: 'CUSTOM', label: isMarathi ? 'सानुकूल मेसेज' : 'Custom Alert Message', icon: MessageSquare, badgeColor: 'text-indigo-700 bg-indigo-50 border-indigo-200' },
   ];
 
   const handleExportExcel = () => {
     if (!loans.length) {
-      toast.error('No alerts or loan records available to export.');
+      toast.error(dict.common.noRecords);
       return;
     }
     const rows = loans.map((l, idx) => ({
@@ -287,14 +315,14 @@ export default function CustomerAlertsPage() {
 
   const handleExportPDF = () => {
     if (!loans.length) {
-      toast.error('No alerts or loan records available to export.');
+      toast.error(dict.common.noRecords);
       return;
     }
     const session = getSessionUser();
     exportToPDF({
-      title: 'WhatsApp Alerts & Notification Dispatch Logs',
-      subtitle: 'Audit Log of Dispatched WhatsApp Due Alerts, Interest Reminders & SMS Notices',
-      columns: ['Customer Name', 'Mobile', 'Loan Contract #', 'Loan Amount (₹)', 'Due Date', 'Status'],
+      title: isMarathi ? 'व्हॉट्सअ‍ॅप सूचना व अलर्ट नोंदवही' : 'WhatsApp Alerts & Notification Dispatch Logs',
+      subtitle: isMarathi ? 'ग्राहकांना पाठवलेल्या सर्व सूचना, व्याज आठवण व पावत्यांची नोंद' : 'Audit Log of Dispatched WhatsApp Due Alerts, Interest Reminders & SMS Notices',
+      columns: [dict.customer.customerName, dict.customer.mobileNumber, dict.loan.contractNumber, dict.loan.loanAmount, dict.loan.dueDate, dict.common.status],
       rows: loans.map((l, idx) => [
         getCustomerName(l.customer, idx),
         getCustomerMobile(l.customer, idx),
@@ -306,7 +334,7 @@ export default function CustomerAlertsPage() {
       shop: session?.shop,
       filename: `WhatsApp_Alerts_${new Date().toISOString().split('T')[0]}`,
     });
-    toast.success('Generated WhatsApp Alerts PDF Report!');
+    toast.success(isMarathi ? 'व्हॉट्सअ‍ॅप अलर्ट पीडीएफ अहवाल तयार झाला!' : 'Generated WhatsApp Alerts PDF Report!');
   };
 
   return (
@@ -320,10 +348,10 @@ export default function CustomerAlertsPage() {
             </div>
             <div>
               <h1 className="text-xl md:text-2xl font-black text-slate-900 tracking-tight flex items-center gap-2">
-                <span>Customer Alerts & WhatsApp Hub</span>
+                <span>{dict.alerts.title}</span>
               </h1>
               <p className="text-xs text-slate-500 font-medium mt-0.5">
-                Send repayment PDFs, WhatsApp dues reminders, EMI notices & loan clear certificates directly to customers
+                {dict.alerts.subtitle}
               </p>
             </div>
           </div>
@@ -334,7 +362,7 @@ export default function CustomerAlertsPage() {
               className="px-3.5 py-2 text-xs font-bold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs"
             >
               <Printer className="w-4 h-4 text-rose-600" />
-              <span>Export PDF 📄</span>
+              <span>{dict.reports.printReport}</span>
             </button>
 
             <button
@@ -342,7 +370,7 @@ export default function CustomerAlertsPage() {
               className="px-3.5 py-2 text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              <span>Export Excel 📊</span>
+              <span>{dict.reports.exportExcel} 📊</span>
             </button>
 
             <button
@@ -350,7 +378,7 @@ export default function CustomerAlertsPage() {
               className="px-4 py-2 text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl flex items-center gap-1.5 transition-colors"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
-              <span>Refresh Dues</span>
+              <span>{dict.alerts.refreshDues}</span>
             </button>
           </div>
         </div>
@@ -359,9 +387,9 @@ export default function CustomerAlertsPage() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
             <div>
-              <span className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider">Total Customer Accounts</span>
+              <span className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider">{dict.alerts.totalCustomerAccounts}</span>
               <div className="text-2xl font-black text-slate-900 mt-1">{loans.length}</div>
-              <span className="text-[11px] font-semibold text-slate-500">Registered Gold Loans</span>
+              <span className="text-[11px] font-semibold text-slate-500">{dict.alerts.registeredGoldLoans}</span>
             </div>
             <div className="p-3 bg-slate-100 text-slate-600 rounded-2xl">
               <Users className="w-6 h-6" />
@@ -370,9 +398,9 @@ export default function CustomerAlertsPage() {
 
           <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
             <div>
-              <span className="text-[11px] font-extrabold uppercase text-amber-600 tracking-wider">Accrued Interest Dues</span>
+              <span className="text-[11px] font-extrabold uppercase text-amber-600 tracking-wider">{dict.alerts.accruedInterestDues}</span>
               <div className="text-2xl font-black text-amber-700 mt-1">{formatCurrency(totalAccruedInterestAll)}</div>
-              <span className="text-[11px] font-semibold text-amber-600">Pending Collection</span>
+              <span className="text-[11px] font-semibold text-amber-600">{dict.alerts.pendingCollection}</span>
             </div>
             <div className="p-3 bg-amber-50 text-amber-600 rounded-2xl border border-amber-200/60">
               <Coins className="w-6 h-6" />
@@ -381,9 +409,9 @@ export default function CustomerAlertsPage() {
 
           <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
             <div>
-              <span className="text-[11px] font-extrabold uppercase text-rose-600 tracking-wider">Overdue Alerts</span>
+              <span className="text-[11px] font-extrabold uppercase text-rose-600 tracking-wider">{dict.alerts.overdueAlerts}</span>
               <div className="text-2xl font-black text-rose-700 mt-1">{overdueCount}</div>
-              <span className="text-[11px] font-semibold text-rose-600">Action Required</span>
+              <span className="text-[11px] font-semibold text-rose-600">{dict.alerts.actionRequired}</span>
             </div>
             <div className="p-3 bg-rose-50 text-rose-600 rounded-2xl border border-rose-200/60">
               <AlertTriangle className="w-6 h-6" />
@@ -392,9 +420,9 @@ export default function CustomerAlertsPage() {
 
           <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-xs flex items-center justify-between">
             <div>
-              <span className="text-[11px] font-extrabold uppercase text-emerald-600 tracking-wider">Closed & Settled</span>
+              <span className="text-[11px] font-extrabold uppercase text-emerald-600 tracking-wider">{dict.alerts.closedAndSettled}</span>
               <div className="text-2xl font-black text-emerald-700 mt-1">{closedCount}</div>
-              <span className="text-[11px] font-semibold text-emerald-600">Clear Certificates</span>
+              <span className="text-[11px] font-semibold text-emerald-600">{dict.alerts.clearCertificates}</span>
             </div>
             <div className="p-3 bg-emerald-50 text-emerald-600 rounded-2xl border border-emerald-200/60">
               <FileCheck className="w-6 h-6" />
@@ -414,7 +442,7 @@ export default function CustomerAlertsPage() {
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search customer, mobile # or loan #..."
+                  placeholder={dict.alerts.searchPlaceholder}
                   className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold focus:outline-none focus:border-emerald-500 focus:bg-white transition-colors"
                 />
               </div>
@@ -427,7 +455,7 @@ export default function CustomerAlertsPage() {
                     statusFilter === 'ALL' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-900'
                   }`}
                 >
-                  All ({loans.length})
+                  {dict.alerts.allTab} ({loans.length})
                 </button>
                 <button
                   onClick={() => setStatusFilter('DUE')}
@@ -435,7 +463,7 @@ export default function CustomerAlertsPage() {
                     statusFilter === 'DUE' ? 'bg-white text-amber-700 shadow-2xs' : 'text-slate-500 hover:text-amber-700'
                   }`}
                 >
-                  Dues
+                  {dict.alerts.duesTab}
                 </button>
                 <button
                   onClick={() => setStatusFilter('OVERDUE')}
@@ -443,7 +471,7 @@ export default function CustomerAlertsPage() {
                     statusFilter === 'OVERDUE' ? 'bg-white text-rose-700 shadow-2xs' : 'text-slate-500 hover:text-rose-700'
                   }`}
                 >
-                  Overdue
+                  {dict.alerts.overdueTab}
                 </button>
                 <button
                   onClick={() => setStatusFilter('CLOSED')}
@@ -451,7 +479,7 @@ export default function CustomerAlertsPage() {
                     statusFilter === 'CLOSED' ? 'bg-white text-emerald-700 shadow-2xs' : 'text-slate-500 hover:text-emerald-700'
                   }`}
                 >
-                  Closed
+                  {dict.alerts.closedTab}
                 </button>
               </div>
             </div>
@@ -461,7 +489,7 @@ export default function CustomerAlertsPage() {
               {filteredLoans.length === 0 ? (
                 <div className="p-8 text-center text-slate-400 text-xs">
                   <Users className="w-8 h-8 mx-auto mb-2 opacity-50" />
-                  No customer loan records found matching filter criteria.
+                  {dict.common.noRecords}
                 </div>
               ) : (
                 filteredLoans.map((loan, idx) => {
@@ -503,16 +531,16 @@ export default function CustomerAlertsPage() {
                               : 'bg-amber-100 text-amber-800'
                           }`}
                         >
-                          {isClosed ? 'Closed' : isOverdue ? `Overdue (${fin.overdueDays}d)` : 'Active'}
+                          {isClosed ? (isMarathi ? 'बंद' : 'Closed') : isOverdue ? `${isMarathi ? 'थकीत' : 'Overdue'} (${fin.overdueDays}d)` : (isMarathi ? 'सक्रिय' : 'Active')}
                         </span>
                       </div>
 
                       <div className="flex items-center justify-between text-xs">
                         <div className="text-slate-500 text-[11px] font-medium">
-                          Pledged: <span className="font-semibold text-slate-800">{loan.gold_item?.ornament_type || 'Gold Item'}</span> ({formatWeight(loan.gold_item?.net_weight || 0)})
+                          {isMarathi ? 'तारण दागिने' : 'Pledged'}: <span className="font-semibold text-slate-800">{loan.gold_item?.ornament_type || (isMarathi ? 'दागिना' : 'Gold Item')}</span> ({formatWeight(loan.gold_item?.net_weight || 0)})
                         </div>
                         <div className="text-right">
-                          <span className="text-[10px] text-slate-400 uppercase font-bold block">Accrued Due</span>
+                          <span className="text-[10px] text-slate-400 uppercase font-bold block">{isMarathi ? 'थकीत व्याज' : 'Accrued Due'}</span>
                           <span className="font-black text-amber-700">{formatCurrency(fin.netAccruedInterest)}</span>
                         </div>
                       </div>
@@ -523,7 +551,7 @@ export default function CustomerAlertsPage() {
                           {getCustomerMobile(loan.customer, idx)}
                         </span>
                         <span className="font-bold text-slate-700">
-                          Total Due: {formatCurrency(fin.totalBalanceDue)}
+                          {isMarathi ? 'एकूण देय' : 'Total Due'}: {formatCurrency(fin.totalBalanceDue)}
                         </span>
                       </div>
                     </div>
@@ -538,8 +566,8 @@ export default function CustomerAlertsPage() {
             {!selectedLoan ? (
               <div className="bg-white rounded-3xl p-12 text-center border border-slate-200/80 shadow-xs">
                 <Bell className="w-12 h-12 text-slate-300 mx-auto mb-3" />
-                <h3 className="text-base font-bold text-slate-700">No Customer Selected</h3>
-                <p className="text-xs text-slate-400 mt-1">Select a customer loan account from the left list to generate alerts & receipts.</p>
+                <h3 className="text-base font-bold text-slate-700">{isMarathi ? 'कोणताही ग्राहक निवडलेला नाही' : 'No Customer Selected'}</h3>
+                <p className="text-xs text-slate-400 mt-1">{isMarathi ? 'सूचना व पावत्या तयार करण्यासाठी डावीकडील सूचीमधून कर्ज खाते निवडा.' : 'Select a customer loan account from the left list to generate alerts & receipts.'}</p>
               </div>
             ) : (
               (() => {
@@ -570,14 +598,14 @@ export default function CustomerAlertsPage() {
                             </span>
                           </div>
                           <p className="text-xs text-slate-400 mt-1 flex items-center gap-3">
-                            <span>Sanction: <strong className="text-white">{formatCurrency(selectedLoan.loan_amount)}</strong></span>
-                            <span>Rate: <strong className="text-amber-300">{selectedLoan.interest_rate}%/mo</strong></span>
-                            <span>Date: <strong className="text-white">{formatDate(selectedLoan.loan_date)}</strong></span>
+                            <span>{dict.loan.loanAmount}: <strong className="text-white">{formatCurrency(selectedLoan.loan_amount)}</strong></span>
+                            <span>{dict.loan.monthlyInterestRate}: <strong className="text-amber-300">{selectedLoan.interest_rate}%/mo</strong></span>
+                            <span>{dict.loan.disbursementDate}: <strong className="text-white">{formatDate(selectedLoan.loan_date)}</strong></span>
                           </p>
                         </div>
 
                         <div className="flex items-center gap-2">
-                          <span className="text-xs text-slate-400 font-bold">Mobile #:</span>
+                          <span className="text-xs text-slate-400 font-bold">{dict.customer.mobileNumber}:</span>
                           <input
                             type="text"
                             value={customPhone}
@@ -591,24 +619,24 @@ export default function CustomerAlertsPage() {
                       {/* Financial Breakdown Pills */}
                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                         <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700">
-                          <span className="text-[10px] uppercase font-bold text-amber-400 block">Accrued Interest Due</span>
+                          <span className="text-[10px] uppercase font-bold text-amber-400 block">{dict.alerts.accruedInterestDues}</span>
                           <span className="text-base font-black text-amber-300">{formatCurrency(fin.netAccruedInterest)}</span>
                         </div>
 
                         <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700">
-                          <span className="text-[10px] uppercase font-bold text-emerald-400 block">Total Outstanding</span>
+                          <span className="text-[10px] uppercase font-bold text-emerald-400 block">{dict.loan.totalPayable}</span>
                           <span className="text-base font-black text-white">{formatCurrency(fin.totalBalanceDue)}</span>
                         </div>
 
                         <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700">
-                          <span className="text-[10px] uppercase font-bold text-sky-400 block">Monthly Rate EMI</span>
+                          <span className="text-[10px] uppercase font-bold text-sky-400 block">{dict.alerts.monthlyDueInterest}</span>
                           <span className="text-base font-black text-sky-300">{formatCurrency(fin.emiAmount)}</span>
                         </div>
 
                         <div className="bg-slate-800/80 p-3 rounded-2xl border border-slate-700">
-                          <span className="text-[10px] uppercase font-bold text-purple-400 block">Pledged Asset</span>
+                          <span className="text-[10px] uppercase font-bold text-purple-400 block">{isMarathi ? 'तारण दागिने' : 'Pledged Asset'}</span>
                           <span className="text-xs font-bold text-slate-200 truncate block mt-1">
-                            {selectedLoan.gold_item?.ornament_type || 'Gold Item'} ({formatWeight(selectedLoan.gold_item?.net_weight || 0)})
+                            {selectedLoan.gold_item?.ornament_type || (isMarathi ? 'दागिना' : 'Gold Item')} ({formatWeight(selectedLoan.gold_item?.net_weight || 0)})
                           </span>
                         </div>
                       </div>
@@ -619,31 +647,31 @@ export default function CustomerAlertsPage() {
                       <div className="flex items-center justify-between">
                         <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                           <FileText className="w-4 h-4 text-emerald-600" />
-                          <span>Generate & Print Customer PDF Documents</span>
+                          <span>{dict.alerts.generatePrintPdf}</span>
                         </h3>
                         <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full border border-emerald-200">
-                          A4 Print Format
+                          {isMarathi ? 'ए४ प्रिंट फॉरमॅट' : 'A4 Print Format'}
                         </span>
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                         <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between">
                           <div>
-                            <span className="font-bold text-slate-800 block">Repayment Receipt PDF</span>
-                            <span className="text-[10px] text-slate-500">Official receipt with payment breakdown</span>
+                            <span className="font-bold text-slate-800 block">{dict.alerts.repaymentReceiptPdf}</span>
+                            <span className="text-[10px] text-slate-500">{dict.alerts.repaymentReceiptSubtitle}</span>
                           </div>
                           <div className="flex items-center gap-1">
                             <button
                               onClick={handlePrintRepaymentReceipt}
                               className="p-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow-xs transition-colors"
-                              title="Print Repayment Receipt"
+                              title={dict.alerts.repaymentReceiptPdf}
                             >
                               <Printer className="w-4 h-4" />
                             </button>
                             <button
                               onClick={handleDownloadRepaymentReceipt}
                               className="p-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl transition-colors"
-                              title="Download Receipt File"
+                              title={dict.common.download}
                             >
                               <Download className="w-4 h-4" />
                             </button>
@@ -652,13 +680,13 @@ export default function CustomerAlertsPage() {
 
                         <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between">
                           <div>
-                            <span className="font-bold text-slate-800 block">Loan Closure Certificate</span>
-                            <span className="text-[10px] text-slate-500">Gold asset release & closure document</span>
+                            <span className="font-bold text-slate-800 block">{dict.alerts.loanClosureCertificate}</span>
+                            <span className="text-[10px] text-slate-500">{dict.alerts.loanClosureSubtitle}</span>
                           </div>
                           <button
                             onClick={handlePrintClosureCertificate}
                             className="p-2 bg-sky-600 hover:bg-sky-500 text-white rounded-xl shadow-xs transition-colors"
-                            title="Print Closure Certificate"
+                            title={dict.alerts.loanClosureCertificate}
                           >
                             <Printer className="w-4 h-4" />
                           </button>
@@ -666,15 +694,15 @@ export default function CustomerAlertsPage() {
 
                         <div className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between sm:col-span-2">
                           <div>
-                            <span className="font-bold text-slate-800 block">No Due Certificate (NDC) PDF</span>
-                            <span className="text-[10px] text-slate-500">Official clear certificate verifying zero remaining dues</span>
+                            <span className="font-bold text-slate-800 block">{dict.alerts.noDueCertificatePdf}</span>
+                            <span className="text-[10px] text-slate-500">{dict.alerts.noDueSubtitle}</span>
                           </div>
                           <button
                             onClick={handlePrintNoDueCertificate}
                             className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl font-bold flex items-center gap-1.5 transition-colors shadow-xs"
                           >
                             <Printer className="w-3.5 h-3.5" />
-                            <span>Print NDC</span>
+                            <span>{dict.alerts.printNdcBtn}</span>
                           </button>
                         </div>
                       </div>
@@ -688,10 +716,10 @@ export default function CustomerAlertsPage() {
                         </div>
                         <div>
                           <h3 className="text-base font-extrabold text-slate-900">
-                            WhatsApp Customer Alert Generator
+                            {dict.alerts.whatsAppAlertGenerator}
                           </h3>
                           <p className="text-xs text-slate-500 font-medium">
-                            Select a pre-formatted message template or write a custom alert text to send directly via WhatsApp
+                            {dict.alerts.whatsAppSubtitle}
                           </p>
                         </div>
                       </div>
@@ -699,7 +727,7 @@ export default function CustomerAlertsPage() {
                       {/* Template Selector Grid */}
                       <div className="space-y-2">
                         <span className="text-[11px] font-extrabold text-slate-400 uppercase tracking-wider block">
-                          Select Message Alert Template:
+                          {isMarathi ? 'मेसेज अलर्ट टेम्पलेट निवडा:' : 'Select Message Alert Template:'}
                         </span>
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs">
                           {templatesList.map((tpl) => {
@@ -729,9 +757,9 @@ export default function CustomerAlertsPage() {
                         <div className="flex items-center justify-between text-[11px]">
                           <span className="font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
                             <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
-                            <span>WhatsApp Message Body (Live Preview / Editable):</span>
+                            <span>{dict.alerts.whatsAppMessageBody}</span>
                           </span>
-                          <span className="text-slate-400 text-[10px]">Formatted for WhatsApp</span>
+                          <span className="text-slate-400 text-[10px]">{isMarathi ? 'व्हॉट्सअ‍ॅप फॉरमॅट' : 'Formatted for WhatsApp'}</span>
                         </div>
 
                         <textarea
@@ -750,7 +778,7 @@ export default function CustomerAlertsPage() {
                           className="px-4 py-2.5 text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl flex items-center gap-1.5 transition-colors"
                         >
                           <Copy className="w-4 h-4" />
-                          <span>Copy Message Text</span>
+                          <span>{dict.alerts.copyMessageText}</span>
                         </button>
 
                         <button
@@ -759,7 +787,7 @@ export default function CustomerAlertsPage() {
                           className="px-6 py-2.5 text-xs font-extrabold bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl shadow-lg shadow-emerald-600/30 flex items-center gap-2 transition-transform active:scale-95"
                         >
                           <Send className="w-4 h-4" />
-                          <span>Send WhatsApp Alert Now</span>
+                          <span>{dict.alerts.sendWhatsAppAlertNow}</span>
                         </button>
                       </div>
                     </div>
@@ -778,8 +806,8 @@ export default function CustomerAlertsPage() {
                 <MessageSquare className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-sm font-extrabold text-slate-900">WhatsApp Logs Audit Trail</h3>
-                <p className="text-xs text-slate-500">History of customer alerts and payment reminders dispatched from this shop</p>
+                <h3 className="text-sm font-extrabold text-slate-900">{isMarathi ? 'व्हॉट्सअ‍ॅप पाठवल्याची नोंदवही' : 'WhatsApp Logs Audit Trail'}</h3>
+                <p className="text-xs text-slate-500">{isMarathi ? 'पेढीवरून ग्राहकांना पाठवलेल्या सर्व सूचना व आठवणींचा तपशील' : 'History of customer alerts and payment reminders dispatched from this shop'}</p>
               </div>
             </div>
             {dispatchLogs.length > 0 && (
@@ -788,31 +816,31 @@ export default function CustomerAlertsPage() {
                 onClick={() => {
                   setDispatchLogs([]);
                   if (typeof window !== 'undefined') localStorage.removeItem('sl_whatsapp_dispatch_logs');
-                  toast.success('Cleared WhatsApp Logs History');
+                  toast.success(isMarathi ? 'व्हॉट्सअ‍ॅप नोंदवही साफ केली' : 'Cleared WhatsApp Logs History');
                 }}
                 className="text-xs text-slate-400 hover:text-rose-600 transition-colors"
               >
-                Clear History
+                {isMarathi ? 'इतिहास साफ करा' : 'Clear History'}
               </button>
             )}
           </div>
 
           {dispatchLogs.length === 0 ? (
             <div className="text-center py-8 text-slate-400 text-xs font-medium">
-              No WhatsApp messages logged yet. Launch an alert above to create your first log entry.
+              {isMarathi ? 'अद्याप कोणतेही व्हॉट्सअ‍ॅप संदेश पाठवलेले नाहीत. नवीन संदेश पाठवून नोंद सुरू करा.' : 'No WhatsApp messages logged yet. Launch an alert above to create your first log entry.'}
             </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="bg-slate-50 text-slate-500 font-bold border-b border-slate-200">
-                    <th className="py-2.5 px-3">Date & Time</th>
-                    <th className="py-2.5 px-3">Customer</th>
-                    <th className="py-2.5 px-3">Mobile</th>
-                    <th className="py-2.5 px-3">Contract #</th>
-                    <th className="py-2.5 px-3">Alert Type</th>
-                    <th className="py-2.5 px-3">Status</th>
-                    <th className="py-2.5 px-3 text-right">Action</th>
+                    <th className="py-2.5 px-3">{dict.common.date}</th>
+                    <th className="py-2.5 px-3">{dict.customer.customerName}</th>
+                    <th className="py-2.5 px-3">{dict.customer.mobileNumber}</th>
+                    <th className="py-2.5 px-3">{dict.loan.contractNumber}</th>
+                    <th className="py-2.5 px-3">{isMarathi ? 'सूचना प्रकार' : 'Alert Type'}</th>
+                    <th className="py-2.5 px-3">{dict.common.status}</th>
+                    <th className="py-2.5 px-3 text-right">{dict.common.actions}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium text-slate-700">
@@ -833,11 +861,11 @@ export default function CustomerAlertsPage() {
                           type="button"
                           onClick={() => {
                             sendWhatsAppAlert(log.phone, log.messageSnippet);
-                            toast.success(`Resent WhatsApp to ${log.customerName}`);
+                            toast.success(isMarathi ? `${log.customerName} यांना व्हॉट्सअ‍ॅप पुन्हा पाठवले` : `Resent WhatsApp to ${log.customerName}`);
                           }}
                           className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[11px] font-bold transition-colors"
                         >
-                          Re-send
+                          {isMarathi ? 'पुन्हा पाठवा' : 'Re-send'}
                         </button>
                       </td>
                     </tr>

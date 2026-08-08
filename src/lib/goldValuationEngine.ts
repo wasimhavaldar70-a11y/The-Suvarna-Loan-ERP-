@@ -138,18 +138,227 @@ export function calculateReducingBalanceSchedule(
   return schedule;
 }
 
+export interface DisbursementFinancials {
+  disbursementId: string;
+  disbursementNumber: number;
+  originalAmount: number;
+  monthlyInterestRate: number;
+  disbursementDate: string;
+  dueDate: string;
+  elapsedDays: number;
+  elapsedMonths: number;
+  grossAccruedInterest: number;
+  totalInterestPaid: number;
+  totalPrincipalPaid: number;
+  remainingPrincipal: number;
+  netAccruedInterest: number;
+  totalBalanceDue: number;
+  isOverdue: boolean;
+  overdueDays: number;
+}
+
+/**
+ * Calculates independent financial metrics for a single disbursement tranche
+ */
+export function calculateDisbursementFinancials(
+  disbursement: {
+    id?: string;
+    disbursement_number?: number;
+    amount: number;
+    interest_rate: number;
+    disbursement_date: string;
+    interest_start_date?: string;
+    due_date?: string;
+    tenure_months?: number;
+  },
+  payments: Array<{ amount: number; payment_type: string; payment_date: string; disbursement_id?: string; disbursement_number?: number }> = [],
+  repaymentModel: 'Reducing Balance EMI' | 'Bullet Repayment' | 'Interest Only' = 'Bullet Repayment'
+): DisbursementFinancials {
+  const safeAmount = Math.max(0, Number(disbursement.amount) || 0);
+  const safeRate = Math.max(0, Number(disbursement.interest_rate) || 0);
+  const safeTenure = Math.max(1, Number(disbursement.tenure_months) || 12);
+
+  const startDateStr = disbursement.interest_start_date || disbursement.disbursement_date || new Date().toISOString().split('T')[0];
+  const safeDueDateStr = disbursement.due_date || new Date(Date.now() + safeTenure * 30 * 24 * 3600 * 1000).toISOString().split('T')[0];
+
+  const parsedStartDate = new Date(startDateStr);
+  const parsedDueDate = new Date(safeDueDateStr);
+  const startDate = isNaN(parsedStartDate.getTime()) ? new Date() : parsedStartDate;
+  const dueDate = isNaN(parsedDueDate.getTime()) ? new Date(Date.now() + 365 * 24 * 3600 * 1000) : parsedDueDate;
+  const today = new Date();
+
+  const diffTime = Math.max(0, today.getTime() - startDate.getTime()) || 0;
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 0;
+  const diffMonths = Math.max(1, Math.ceil(diffDays / 30)) || 1;
+
+  let remainingPrincipal = safeAmount;
+  let totalInterestPaid = 0;
+  let totalPrincipalPaid = 0;
+
+  // Filter payments specifically for this tranche if allocated, or general payments
+  const relevantPayments = payments.filter(p => {
+    if (disbursement.id && p.disbursement_id) {
+      return p.disbursement_id === disbursement.id;
+    }
+    if (disbursement.disbursement_number && p.disbursement_number) {
+      return p.disbursement_number === disbursement.disbursement_number;
+    }
+    return !p.disbursement_id && !p.disbursement_number; // general payment shared proportionally
+  });
+
+  const sortedPayments = [...relevantPayments].sort((a, b) => {
+    const da = a?.payment_date ? (typeof a.payment_date === 'number' ? a.payment_date : Date.parse(a.payment_date) || 0) : 0;
+    const db = b?.payment_date ? (typeof b.payment_date === 'number' ? b.payment_date : Date.parse(b.payment_date) || 0) : 0;
+    return da - db;
+  });
+
+  // Calculate gross accrued interest for this tranche
+  const grossAccruedInterest = Math.round((safeAmount * (safeRate / 100)) * diffMonths);
+  let unpaidInterest = grossAccruedInterest;
+
+  sortedPayments.forEach((p) => {
+    const amt = Number(p.amount) || 0;
+    if (amt <= 0) return;
+
+    const pType = (p.payment_type || '').toLowerCase();
+
+    if (pType.includes('full settlement') || pType.includes('closure')) {
+      totalPrincipalPaid += remainingPrincipal;
+      totalInterestPaid += unpaidInterest;
+      remainingPrincipal = 0;
+      unpaidInterest = 0;
+    } else if (pType.includes('principal') || pType.includes('partial') || pType.includes('part')) {
+      const partPrincipal = Math.min(amt, remainingPrincipal);
+      remainingPrincipal = Math.max(0, remainingPrincipal - partPrincipal);
+      totalPrincipalPaid += partPrincipal;
+      const excess = amt - partPrincipal;
+      if (excess > 0) {
+        const partInterest = Math.min(excess, unpaidInterest);
+        unpaidInterest = Math.max(0, unpaidInterest - partInterest);
+        totalInterestPaid += partInterest;
+      }
+    } else {
+      if (amt <= unpaidInterest) {
+        totalInterestPaid += amt;
+        unpaidInterest -= amt;
+      } else {
+        totalInterestPaid += unpaidInterest;
+        const excessToPrincipal = amt - unpaidInterest;
+        unpaidInterest = 0;
+        totalPrincipalPaid += excessToPrincipal;
+        remainingPrincipal = Math.max(0, remainingPrincipal - excessToPrincipal);
+      }
+    }
+  });
+
+  const netAccruedInterest = Math.max(0, unpaidInterest);
+  const totalBalanceDue = Math.max(0, remainingPrincipal + netAccruedInterest);
+  const isOverdue = today > dueDate && remainingPrincipal > 0;
+  const overdueDays = isOverdue ? Math.ceil((today.getTime() - dueDate.getTime()) / (1000 * 3600 * 24)) : 0;
+
+  return {
+    disbursementId: disbursement.id || `disb-${disbursement.disbursement_number || 1}`,
+    disbursementNumber: disbursement.disbursement_number || 1,
+    originalAmount: safeAmount,
+    monthlyInterestRate: safeRate,
+    disbursementDate: startDateStr,
+    dueDate: safeDueDateStr,
+    elapsedDays: diffDays,
+    elapsedMonths: diffMonths,
+    grossAccruedInterest,
+    totalInterestPaid,
+    totalPrincipalPaid,
+    remainingPrincipal,
+    netAccruedInterest,
+    totalBalanceDue,
+    isOverdue,
+    overdueDays,
+  };
+}
+
 /**
  * Dual Model Loan Financial Calculation (Reducing Balance EMI vs Bullet Repayment Gold Loan)
+ * Supports Multi-Disbursement Tranches & Aggregation
  */
 export function calculateLoanFinancials(
   loanAmount: number = 0,
   monthlyInterestRate: number = 0,
   loanDateStr: string = '',
   dueDateStr: string = '',
-  payments: Array<{ amount: number; payment_type: string; payment_date: string }> = [],
+  payments: Array<{ amount: number; payment_type: string; payment_date: string; disbursement_id?: string; disbursement_number?: number }> = [],
   repaymentModel: 'Reducing Balance EMI' | 'Bullet Repayment' | 'Interest Only' = 'Bullet Repayment',
-  tenureMonths: number = 12
+  tenureMonths: number = 12,
+  disbursements?: Array<{
+    id?: string;
+    disbursement_number?: number;
+    amount: number;
+    interest_rate: number;
+    disbursement_date: string;
+    interest_start_date?: string;
+    due_date?: string;
+    tenure_months?: number;
+  }>
 ) {
+  const safePayments = Array.isArray(payments) ? payments : [];
+
+  // If explicit multi-disbursements are provided, calculate tranche-by-tranche and aggregate
+  if (Array.isArray(disbursements) && disbursements.length > 0) {
+    const trancheMetrics = disbursements.map((d, index) => {
+      return calculateDisbursementFinancials(
+        {
+          ...d,
+          disbursement_number: d.disbursement_number || (index + 1),
+          interest_rate: d.interest_rate !== undefined ? d.interest_rate : monthlyInterestRate,
+          tenure_months: d.tenure_months || tenureMonths,
+        },
+        safePayments,
+        repaymentModel
+      );
+    });
+
+    const totalDisbursed = trancheMetrics.reduce((sum, t) => sum + t.originalAmount, 0);
+    const totalRemainingPrincipal = trancheMetrics.reduce((sum, t) => sum + t.remainingPrincipal, 0);
+    const totalPrincipalPaid = trancheMetrics.reduce((sum, t) => sum + t.totalPrincipalPaid, 0);
+    const totalInterestPaid = trancheMetrics.reduce((sum, t) => sum + t.totalInterestPaid, 0);
+    const totalGrossAccruedInterest = trancheMetrics.reduce((sum, t) => sum + t.grossAccruedInterest, 0);
+    const totalNetAccruedInterest = trancheMetrics.reduce((sum, t) => sum + t.netAccruedInterest, 0);
+    const totalBalanceDue = trancheMetrics.reduce((sum, t) => sum + t.totalBalanceDue, 0);
+
+    const isOverdue = trancheMetrics.some(t => t.isOverdue);
+    const maxOverdueDays = Math.max(0, ...trancheMetrics.map(t => t.overdueDays));
+    const isAuctionEligible = maxOverdueDays > 30 && totalRemainingPrincipal > 0;
+
+    const earliestDate = trancheMetrics.reduce((min, t) => t.disbursementDate < min ? t.disbursementDate : min, trancheMetrics[0].disbursementDate);
+    const diffTime = Math.max(0, new Date().getTime() - new Date(earliestDate).getTime()) || 0;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) || 0;
+    const diffMonths = Math.max(1, Math.ceil(diffDays / 30)) || 1;
+
+    const emiAmount = repaymentModel === 'Reducing Balance EMI'
+      ? calculateMonthlyEMI(totalDisbursed, monthlyInterestRate, tenureMonths)
+      : Math.round(totalDisbursed * (monthlyInterestRate / 100));
+
+    return {
+      repaymentModel,
+      elapsedDays: diffDays,
+      elapsedMonths: diffMonths,
+      monthlyInterestRate,
+      annualInterestRate: monthlyInterestRate * 12,
+      emiAmount,
+      totalDisbursed,
+      grossAccruedInterest: totalGrossAccruedInterest,
+      totalInterestPaid,
+      totalPrincipalPaid,
+      remainingPrincipal: totalRemainingPrincipal,
+      netAccruedInterest: totalNetAccruedInterest,
+      totalBalanceDue,
+      isOverdue,
+      overdueDays: maxOverdueDays,
+      isAuctionEligible,
+      trancheBreakdown: trancheMetrics,
+    };
+  }
+
+  // Fallback for single disbursement
   const safeLoanAmount = Math.max(0, Number(loanAmount) || 0);
   const safeRate = Math.max(0, Number(monthlyInterestRate) || 0);
   const safeTenure = Math.max(1, Number(tenureMonths) || 12);
@@ -171,7 +380,6 @@ export function calculateLoanFinancials(
   let totalInterestPaid = 0;
   let totalPrincipalPaid = 0;
 
-  const safePayments = Array.isArray(payments) ? payments : [];
   let sortedPayments = safePayments;
   if (safePayments.length > 1) {
     sortedPayments = [...safePayments].sort((a, b) => {
@@ -197,7 +405,6 @@ export function calculateLoanFinancials(
       remainingPrincipal = 0;
       unpaidInterest = 0;
     } else if (pType.includes('principal') || pType.includes('partial') || pType.includes('part')) {
-      // Direct principal part-payment: subtracts from remaining principal first
       const partPrincipal = Math.min(amt, remainingPrincipal);
       remainingPrincipal = Math.max(0, remainingPrincipal - partPrincipal);
       totalPrincipalPaid += partPrincipal;
@@ -208,7 +415,6 @@ export function calculateLoanFinancials(
         totalInterestPaid += partInterest;
       }
     } else {
-      // Interest / EMI / General Repayment: covers accrued interest first, excess reduces principal
       if (amt <= unpaidInterest) {
         totalInterestPaid += amt;
         unpaidInterest -= amt;
@@ -232,6 +438,25 @@ export function calculateLoanFinancials(
   const overdueDays = isOverdue ? Math.ceil((today.getTime() - dueDate.getTime()) / (1000 * 3600 * 24)) : 0;
   const isAuctionEligible = overdueDays > 30 && remainingPrincipal > 0;
 
+  const singleTranche: DisbursementFinancials = {
+    disbursementId: 'disb-1',
+    disbursementNumber: 1,
+    originalAmount: safeLoanAmount,
+    monthlyInterestRate: safeRate,
+    disbursementDate: safeLoanDateStr,
+    dueDate: safeDueDateStr,
+    elapsedDays: diffDays,
+    elapsedMonths: diffMonths,
+    grossAccruedInterest,
+    totalInterestPaid,
+    totalPrincipalPaid,
+    remainingPrincipal,
+    netAccruedInterest,
+    totalBalanceDue,
+    isOverdue,
+    overdueDays,
+  };
+
   return {
     repaymentModel,
     elapsedDays: diffDays,
@@ -239,6 +464,7 @@ export function calculateLoanFinancials(
     monthlyInterestRate: safeRate,
     annualInterestRate: safeRate * 12,
     emiAmount,
+    totalDisbursed: safeLoanAmount,
     grossAccruedInterest,
     totalInterestPaid,
     totalPrincipalPaid,
@@ -248,5 +474,6 @@ export function calculateLoanFinancials(
     isOverdue,
     overdueDays,
     isAuctionEligible,
+    trancheBreakdown: [singleTranche],
   };
 }

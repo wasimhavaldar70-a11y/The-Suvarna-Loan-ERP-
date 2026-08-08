@@ -2,6 +2,7 @@
 
 // ========================================================
 // SuvarnaLoan ERP - Active Loans Management & Loan Creation
+// Supports English & Bank-Grade Marathi Localization
 // Location: src/app/dashboard/loans/page.tsx
 // ========================================================
 
@@ -17,8 +18,11 @@ import { Loan } from '../../../types';
 import { formatCurrency, formatWeight, formatDate } from '../../../lib/utils';
 import { exportToExcel } from '../../../lib/excel-export';
 import { exportToPDF } from '../../../lib/pdf-export';
+import { useTranslation } from '../../../providers/LanguageProvider';
 
 export default function LoansPage() {
+  const { dict, language, isMarathi } = useTranslation();
+
   const [loans, setLoans] = useState<Loan[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -69,7 +73,12 @@ export default function LoansPage() {
       const mobile = l.customer?.mobile_number || '';
       const num = l.loan_number || '';
       const matchesSearch = cust.toLowerCase().includes(query) || mobile.toLowerCase().includes(query) || num.toLowerCase().includes(query);
-      const matchesStatus = statusFilter === 'ALL' ? l.status !== 'Closed' : l.status === statusFilter;
+      const matchesStatus =
+        statusFilter === 'ALL'
+          ? l.status !== 'Closed'
+          : statusFilter === 'ALL_RECORDS'
+          ? true
+          : l.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
   }, [loans, search, statusFilter]);
@@ -80,7 +89,7 @@ export default function LoansPage() {
       : loans.filter(l => l.status === 'Active' || l.status === 'Overdue' || l.status !== 'Closed');
 
     if (!loansToExport.length) {
-      toast.error('No active or overdue loan records available to export.');
+      toast.error(isMarathi ? 'डाउनलोड करण्यासाठी कोणतीही सक्रिय कर्ज खाती उपलब्ध नाहीत.' : 'No active or overdue loan records available to export.');
       return;
     }
 
@@ -95,222 +104,224 @@ export default function LoansPage() {
       'Loan Date': l.loan_date || '',
       'Status': l.status || 'Active',
     }));
-    exportToExcel(rows, `Gold_Loans_Register_${new Date().toISOString().split('T')[0]}`);
-    toast.success(`Exported ${rows.length} active & overdue loan contracts to Excel!`);
+
+    const columnMap = isMarathi ? {
+      'Loan Number': 'कर्ज क्रमांक',
+      'Customer': 'ग्राहकाचे नाव',
+      'Mobile': 'मोबाईल क्रमांक',
+      'Loan Amount': 'कर्ज रक्कम (₹)',
+      'Interest Rate': 'व्याजदर (%)',
+      'Ornament': 'तारण सोन्याचे दागिने',
+      'Net Weight': 'निव्वळ वजन (ग्रॅम)',
+      'Loan Date': 'कर्ज दिनांक',
+      'Status': 'स्थिती',
+    } : undefined;
+
+    exportToExcel(rows, `Gold_Loans_Register_${new Date().toISOString().split('T')[0]}`, 'Loans', columnMap);
+    toast.success(isMarathi ? 'कर्ज नोंदवही एक्सेलमध्ये यशस्वीरित्या डाउनलोड झाली!' : `Exported ${rows.length} active & overdue loan contracts to Excel!`);
   };
 
-  const handleExportPDF = () => {
-    const loansToExport = filtered.length > 0 ? filtered : loans;
-    if (!loansToExport.length) {
-      toast.error('No loan records available to export as PDF.');
-      return;
-    }
+  const handlePrint = () => {
     const session = getSessionUser();
+    const headers = [
+      dict.loan.contractNumber,
+      dict.loan.borrowerName,
+      dict.goldItem.ornamentType,
+      dict.goldItem.netWeight,
+      dict.loan.loanAmount,
+      dict.loan.interestRate,
+      dict.common.status,
+    ];
+    const data = filtered.map((l) => [
+      l.loan_number,
+      l.customer?.full_name || 'N/A',
+      l.gold_item?.ornament_type || 'N/A',
+      formatWeight(l.gold_item?.net_weight),
+      formatCurrency(l.loan_amount),
+      `${l.interest_rate}%`,
+      l.status,
+    ]);
     exportToPDF({
-      title: 'Gold Loans Register Report',
-      subtitle: 'Comprehensive Pledged Gold Loan Contracts & Portfolios',
-      columns: ['Loan #', 'Customer Name', 'Mobile', 'Loan Amount (₹)', 'Interest %', 'Pledged Ornament', 'Net Wt (g)', 'Loan Date', 'Status'],
-      rows: loansToExport.map((l) => [
-        l.loan_number || '',
-        l.customer?.full_name || 'N/A',
-        l.customer?.mobile_number || 'N/A',
-        formatCurrency(l.loan_amount || 0),
-        `${l.interest_rate || 0}%`,
-        l.gold_item?.ornament_type || 'N/A',
-        `${l.gold_item?.net_weight || 0}g`,
-        formatDate(l.loan_date || ''),
-        l.status || 'Active',
-      ]),
+      title: isMarathi ? 'सुवर्ण कर्ज खाते नोंदवही' : 'SuvarnaLoan Portfolio Register',
+      subtitle: isMarathi ? 'सक्रिय व थकीत सुवर्ण कर्ज खाती' : 'Active and Overdue Gold Loan Accounts',
+      columns: headers,
+      rows: data,
       shop: session?.shop,
       filename: `Gold_Loans_${new Date().toISOString().split('T')[0]}`,
     });
-    toast.success('Generated PDF Report!');
-  };
-
-  const handleDeleteLoan = async (loan: Loan) => {
-    if (loan.status === 'Active' || loan.status === 'Overdue') {
-      toast.error(`🚨 Cannot Delete ${loan.status} Loan!`, {
-        description: `Loan ${loan.loan_number} is currently ${loan.status}. Active & Overdue gold loan contracts cannot be deleted. Please perform Full Settlement or Close the loan first.`,
-        duration: 6000,
-      });
-      alert(`🚨 DELETION RESTRICTED!\n\nLoan Contract #${loan.loan_number} is currently "${loan.status}".\n\nActive and Overdue gold loans cannot be deleted from the system.\n\nPlease perform Full Settlement or Close the loan before attempting deletion.`);
-      return;
-    }
-
-    if (confirm(`Are you sure you want to delete Loan ${loan.loan_number}? This will permanently remove the record.`)) {
-      try {
-        await db.deleteLoan(loan.id, loan.shop_id);
-        toast.success(`Loan ${loan.loan_number} deleted successfully`);
-        loadLoans();
-      } catch (err: any) {
-        toast.error(`❌ Deletion Blocked`, { description: err.message });
-        alert(`🚨 Deletion Blocked: ${err.message}`);
-      }
-    }
   };
 
   return (
     <DashboardLayout>
-      <div className="space-y-6">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="space-y-6 font-sans">
+        {/* Header and Actions */}
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
-            <h1 className="text-xl md:text-2xl font-extrabold text-slate-900 tracking-tight">
-              Active Gold Loans Directory
+            <h1 className="text-xl md:text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
+              <Coins className="w-6 h-6 text-amber-600" />
+              <span>{dict.loan.title}</span>
             </h1>
             <p className="text-xs text-slate-500 font-medium">
-              Manage pledged gold loan portfolio, track maturity dates & interest payments
+              {dict.loan.subtitle}
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleExportPDF}
-              className="px-3.5 py-2 text-xs font-bold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs"
-            >
-              <Printer className="w-4 h-4 text-rose-600" />
-              <span>Export PDF 📄</span>
-            </button>
-
-            <button
-              onClick={handleExport}
-              className="px-3.5 py-2 text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs"
-            >
-              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              <span>Export Excel 📊</span>
-            </button>
-
+          <div className="flex flex-wrap gap-2 w-full sm:w-auto">
             <button
               onClick={() => setCreateLoanModalOpen(true)}
-              className="px-4 py-2 text-xs font-bold bg-gradient-to-r from-amber-600 to-amber-500 text-white rounded-xl shadow-md gold-glow hover:brightness-105 flex items-center gap-1.5 transition-all"
+              className="flex-1 sm:flex-none flex items-center justify-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-700 hover:to-amber-600 text-white rounded-xl font-bold text-xs shadow-md gold-glow transition-all"
             >
               <Plus className="w-4 h-4" />
-              <span>Disburse New Gold Loan</span>
+              <span>{dict.dashboard.issueLoanBtn}</span>
+            </button>
+            <button
+              onClick={handleExport}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold shadow-2xs transition-colors"
+            >
+              <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
+              <span>{dict.reports.exportExcel}</span>
+            </button>
+            <button
+              onClick={handlePrint}
+              className="flex items-center gap-1.5 px-3 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold shadow-2xs transition-colors"
+            >
+              <Printer className="w-4 h-4 text-slate-600" />
+              <span>{dict.reports.printReport}</span>
             </button>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
-          <div className="p-4 border-b border-slate-200/80 flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div className="relative flex-1 max-w-md">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                placeholder="Search by loan # or customer..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-amber-500 font-medium"
-              />
-            </div>
-
-            <div className="flex items-center gap-2">
-              <select
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-                className="px-3 py-2 text-xs border border-slate-200 rounded-xl bg-slate-50 font-semibold focus:outline-none"
-              >
-                <option value="ALL">All Active & Overdue</option>
-                <option value="Active">Active Only</option>
-                <option value="Overdue">Overdue Only</option>
-                <option value="Closed">Closed Loans Archive</option>
-              </select>
-            </div>
+        {/* Filters and Search Bar */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 p-4 shadow-xs flex flex-col md:flex-row gap-3 items-center justify-between">
+          <div className="relative w-full md:w-80">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+            <input
+              type="text"
+              placeholder={isMarathi ? 'ग्राहक नाव, फोन किंवा कर्ज क्रमांक...' : 'Search customer name, phone, or loan #...'}
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full pl-9 pr-3 py-1.5 text-xs border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500 focus:outline-none"
+            />
           </div>
 
+          <div className="flex gap-2 w-full md:w-auto items-center">
+            <Filter className="w-4 h-4 text-slate-400" />
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="w-full md:w-auto px-3 py-1.5 text-xs border border-slate-200 rounded-xl bg-slate-50 font-semibold text-slate-700 focus:outline-none"
+            >
+              <option value="ALL">{isMarathi ? 'सर्व सक्रिय व थकीत खाती' : 'All Active & Overdue'}</option>
+              <option value="ALL_RECORDS">{isMarathi ? 'सर्व खाती (सक्रिय, थकीत व बंद)' : 'All Loan Contracts (Active, Overdue & Closed)'}</option>
+              <option value="Active">{isMarathi ? 'फक्त सक्रिय' : 'Active Only'}</option>
+              <option value="Overdue">{isMarathi ? 'फक्त थकीत (NPA)' : 'Overdue Only (NPA)'}</option>
+              <option value="Closed">{isMarathi ? 'पूर्ण परतफेड झालेली बंद खाती' : 'Closed / Settled Loans'}</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Loan Contracts Table */}
+        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                  <th className="py-3 px-4">Loan Number</th>
-                  <th className="py-3 px-4">Borrower</th>
-                  <th className="py-3 px-4">Pledged Ornament</th>
-                  <th className="py-3 px-4">Net Gold Weight</th>
-                  <th className="py-3 px-4">Loan Amount</th>
-                  <th className="py-3 px-4">Rate / Mo</th>
-                  <th className="py-3 px-4">Loan Date</th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4 text-right">Action</th>
+                <tr className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  <th className="py-3 px-4">{dict.loan.contractNumber}</th>
+                  <th className="py-3 px-4">{dict.loan.borrowerName}</th>
+                  <th className="py-3 px-4">{dict.goldItem.ornamentType}</th>
+                  <th className="py-3 px-4">{dict.goldItem.netWeight}</th>
+                  <th className="py-3 px-4">{dict.loan.loanAmount}</th>
+                  <th className="py-3 px-4">{dict.loan.interestRate}</th>
+                  <th className="py-3 px-4">{dict.loan.disbursementDate}</th>
+                  <th className="py-3 px-4">{dict.common.status}</th>
+                  <th className="py-3 px-4 text-right">{dict.common.actions}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs font-medium text-slate-800">
                 {loading ? (
                   <tr>
-                    <td colSpan={9} className="py-8 text-center text-slate-400">
-                      Loading gold loans...
+                    <td colSpan={9} className="py-8 text-center text-slate-400 font-medium">
+                      {dict.common.loading}
                     </td>
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-8 text-center text-slate-400">
-                      No loan records found.
+                    <td colSpan={9} className="py-8 text-center text-slate-400 font-medium">
+                      {dict.common.noRecords}
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((loan, idx) => (
-                    <tr key={`${loan.id}-${loan.loan_number}-${idx}`} className="hover:bg-amber-50/20 transition-colors">
-                      <td className="py-3.5 px-4 font-bold text-amber-700">{loan.loan_number}</td>
-                      <td className="py-3.5 px-4">
-                        <div className="font-bold text-slate-900">{loan.customer?.full_name}</div>
-                        <div className="text-[10px] text-slate-400">{loan.customer?.mobile_number}</div>
-                      </td>
-                      <td className="py-3.5 px-4 font-semibold text-slate-800">
-                        <span className="mr-1.5 inline-block text-[11px]">
-                          {loan.gold_item?.metal_type === 'Silver' ? '⚪' : '🟡'}
-                        </span>
-                        <span>{loan.gold_item?.ornament_type} ({loan.gold_item?.purity})</span>
-                      </td>
-                      <td className="py-3.5 px-4 font-semibold text-slate-900">
-                        {formatWeight(loan.gold_item?.net_weight)}
-                      </td>
-                      <td className="py-3.5 px-4 font-extrabold text-slate-900">
-                        {formatCurrency(loan.loan_amount)}
-                      </td>
-                      <td className="py-3.5 px-4 font-semibold text-slate-700">{loan.interest_rate}%</td>
-                      <td className="py-3.5 px-4 text-slate-500">{formatDate(loan.loan_date)}</td>
-                      <td className="py-3.5 px-4">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
-                            loan.status === 'Active'
-                              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                              : loan.status === 'Overdue'
-                              ? 'bg-rose-50 text-rose-700 border-rose-200'
-                              : 'bg-slate-100 text-slate-600 border-slate-200'
-                          }`}
-                        >
-                          {loan.status}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1.5">
-                          <Link
-                            href={`/dashboard/loans/${loan.id}`}
-                            className="px-3 py-1 text-[11px] font-bold bg-amber-500 text-white rounded-lg hover:bg-amber-600 inline-flex items-center gap-1 shadow-2xs"
-                          >
-                            <Eye className="w-3.5 h-3.5" /> View
+                  filtered.map((l) => {
+                    const custName = l.customer?.full_name || 'Valued Customer';
+                    const mobile = l.customer?.mobile_number || 'N/A';
+                    return (
+                      <tr key={l.id} className="hover:bg-amber-50/30 transition-colors">
+                        <td className="py-3.5 px-4 font-extrabold text-amber-700">
+                          <Link href={`/dashboard/loans/${l.id}`} className="hover:underline flex items-center gap-1.5">
+                            <Coins className="w-3.5 h-3.5" />
+                            <span>{l.loan_number}</span>
                           </Link>
-                          <button
-                            onClick={() => handleDeleteLoan(loan)}
-                            className="p-1 text-slate-400 hover:text-rose-600 rounded-lg hover:bg-rose-50 transition-colors"
-                            title="Delete Loan Record"
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <div className="font-bold text-slate-900">{custName}</div>
+                          <div className="text-[10px] text-slate-400">{mobile}</div>
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span className="font-semibold text-slate-800">{l.gold_item?.ornament_type || 'Gold Item'}</span>
+                          <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-900 font-bold">
+                            {l.gold_item?.purity || '22K'}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 font-semibold text-slate-900">
+                          {formatWeight(l.gold_item?.net_weight)}
+                        </td>
+                        <td className="py-3.5 px-4 font-extrabold text-slate-900">
+                          {formatCurrency(l.loan_amount)}
+                        </td>
+                        <td className="py-3.5 px-4 font-semibold text-slate-700">
+                          {l.interest_rate}% / mo
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-500">
+                          {formatDate(l.loan_date)}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          <span
+                            className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${
+                              l.status === 'Active'
+                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                : l.status === 'Overdue'
+                                ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                : 'bg-slate-100 text-slate-600 border-slate-200'
+                            }`}
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
+                            {l.status === 'Active' ? dict.common.active : l.status === 'Overdue' ? dict.common.overdue : dict.common.closed}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <Link
+                            href={`/dashboard/loans/${l.id}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-amber-500 hover:text-white rounded-lg text-[11px] font-bold text-slate-700 transition-colors"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                            <span>{dict.loan.viewDetails}</span>
+                          </Link>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
           </div>
         </div>
-      </div>
 
-      {/* Disburse Gold Loan Modal */}
-      <CreateGoldLoanModal
-        isOpen={createLoanModalOpen}
-        onClose={() => setCreateLoanModalOpen(false)}
-        onSuccess={loadLoans}
-      />
+        {/* Modal for creating a new loan */}
+        <CreateGoldLoanModal
+          isOpen={createLoanModalOpen}
+          onClose={() => setCreateLoanModalOpen(false)}
+          onSuccess={() => loadLoans(true)}
+        />
+      </div>
     </DashboardLayout>
   );
 }

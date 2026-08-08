@@ -1,5 +1,6 @@
 // ========================================================
-// SuvarnaLoan ERP - Loan Closure Certificate & Document Generator
+// SuvarnaLoan ERP - Bilingual Document & Certificate Generator
+// Supports Bank-Grade Marathi & English Devanagari Unicode PDF Generation
 // Location: src/lib/closureDocumentGenerator.ts
 // ========================================================
 
@@ -12,6 +13,7 @@ export interface DocumentOptions {
   shop?: Shop | null;
   closedBy?: string;
   closureDate?: string;
+  language?: 'en' | 'mr';
 }
 
 const DEFAULT_SHOP_INFO = {
@@ -24,13 +26,31 @@ const DEFAULT_SHOP_INFO = {
   license_number: 'GL-MUM-2024-884',
 };
 
+function getActiveLanguage(opts?: DocumentOptions): 'en' | 'mr' {
+  if (opts?.language) return opts.language;
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('sl_language');
+    if (stored === 'mr' || stored === 'en') return stored;
+  }
+  return 'en';
+}
+
+const FONT_STYLES = `
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Devanagari:wght@400;600;700;800;900&display=swap');
+  body, * {
+    font-family: 'Noto Sans Devanagari', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+  }
+`;
+
 /**
- * Generates No Due Certificate HTML
+ * Generates Official No Due Certificate HTML (Bilingual)
  */
 export function generateNoDueCertificateHTML(opts: DocumentOptions): string {
-  const { loan, shop, closedBy = 'Rajesh Sharma (Owner)', closureDate = new Date().toISOString().split('T')[0] } = opts;
+  const { loan, shop, closedBy = 'Authorized Signatory', closureDate = new Date().toISOString().split('T')[0] } = opts;
+  const lang = getActiveLanguage(opts);
+  const isMr = lang === 'mr';
   const s = shop || DEFAULT_SHOP_INFO;
-  const customerName = loan.customer?.full_name || 'Borrower Customer';
+  const customerName = loan.customer?.full_name || (isMr ? 'कर्जदार ग्राहक' : 'Borrower Customer');
   const certNo = `NDC-2026-${loan.id.replace(/\D/g, '').slice(-4) || '8841'}`;
   const verificationId = `VERIFY-NDC-${Math.floor(100000 + Math.random() * 900000)}`;
 
@@ -39,32 +59,38 @@ export function generateNoDueCertificateHTML(opts: DocumentOptions): string {
     loan.interest_rate,
     loan.loan_date,
     loan.due_date,
-    loan.payments
+    loan.payments,
+    loan.repayment_model || 'Bullet Repayment',
+    loan.tenure_months || 12,
+    loan.disbursements || []
   );
+
+  const totalDisbursed = financials.totalDisbursed || loan.loan_amount;
 
   return `
 <!DOCTYPE html>
-<html>
+<html lang="${lang}">
 <head>
   <meta charset="utf-8"/>
-  <title>No Due Certificate - ${loan.loan_number}</title>
+  <title>${isMr ? 'कर्जमुक्ती निरंक दाखला' : 'No Due Certificate'} - ${loan.loan_number}</title>
   <style>
+    ${FONT_STYLES}
     @page { size: A4; margin: 15mm; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; margin: 0; padding: 20px; background: #fff; line-height: 1.5; }
+    body { color: #0f172a; margin: 0; padding: 20px; background: #fff; line-height: 1.5; font-size: 12px; }
     .cert-border { border: 8px double #b45309; padding: 30px; border-radius: 12px; background: #fffdfa; box-shadow: 0 0 20px rgba(0,0,0,0.05); }
     .header { text-align: center; border-bottom: 2px solid #f59e0b; padding-bottom: 20px; margin-bottom: 25px; }
-    .logo-title { font-size: 26px; font-weight: 900; color: #78350f; letter-spacing: -0.5px; text-transform: uppercase; margin: 0; }
+    .logo-title { font-size: 24px; font-weight: 900; color: #78350f; letter-spacing: -0.5px; text-transform: uppercase; margin: 0; }
     .sub-address { font-size: 11px; color: #64748b; margin-top: 4px; }
-    .badge-title { display: inline-block; background: linear-gradient(135deg, #d97706, #b45309); color: #ffffff; padding: 8px 24px; border-radius: 20px; font-size: 18px; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin: 20px 0 10px 0; box-shadow: 0 4px 10px rgba(217, 119, 6, 0.3); }
+    .badge-title { display: inline-block; background: linear-gradient(135deg, #d97706, #b45309); color: #ffffff; padding: 8px 24px; border-radius: 20px; font-size: 16px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; margin: 20px 0 10px 0; box-shadow: 0 4px 10px rgba(217, 119, 6, 0.3); }
     .meta-row { display: flex; justify-content: space-between; font-size: 11px; color: #475569; margin-bottom: 25px; font-weight: 600; }
-    .body-text { font-size: 13px; color: #1e293b; text-align: justify; margin-bottom: 25px; }
+    .body-text { font-size: 13px; color: #1e293b; text-align: justify; margin-bottom: 25px; line-height: 1.6; }
     .highlight-box { background: #fef3c7; border-left: 5px solid #d97706; padding: 15px 20px; border-radius: 8px; margin: 20px 0; font-size: 12px; }
     .grid-info { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 12px; margin-bottom: 25px; }
     .info-card { background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px 14px; border-radius: 8px; }
     .info-label { font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase; }
     .info-val { font-size: 13px; font-weight: 800; color: #0f172a; margin-top: 2px; }
     .seal-box { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 40px; }
-    .green-seal { border: 3px solid #16a34a; color: #15803d; padding: 10px 18px; border-radius: 50px; font-size: 14px; font-weight: 900; text-transform: uppercase; letter-spacing: 1px; transform: rotate(-5deg); display: inline-block; }
+    .green-seal { border: 3px solid #16a34a; color: #15803d; padding: 10px 18px; border-radius: 50px; font-size: 13px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.5px; transform: rotate(-4deg); display: inline-block; }
     .signature-area { text-align: right; }
     .sig-line { width: 180px; border-bottom: 2px solid #0f172a; margin-left: auto; margin-bottom: 6px; }
     .footer { font-size: 9px; color: #94a3b8; text-align: center; margin-top: 30px; border-top: 1px dashed #cbd5e1; padding-top: 10px; }
@@ -75,60 +101,72 @@ export function generateNoDueCertificateHTML(opts: DocumentOptions): string {
     <div class="header">
       <h1 class="logo-title">👑 ${s.shop_name}</h1>
       <div class="sub-address">${s.address} • GSTIN: ${s.gstin} • License: ${s.license_number}</div>
-      <div><span class="badge-title">NO DUE CERTIFICATE</span></div>
+      <div><span class="badge-title">${isMr ? 'सुवर्ण कर्जमुक्ती निरंक दाखला' : 'NO DUE CERTIFICATE'}</span></div>
     </div>
 
     <div class="meta-row">
-      <span><strong>Certificate No:</strong> ${certNo}</span>
-      <span><strong>Issue Date:</strong> ${formatDate(closureDate)}</span>
-      <span><strong>Verification Code:</strong> ${verificationId}</span>
+      <span><strong>${isMr ? 'दाखला क्रमांक:' : 'Certificate No:'}</strong> ${certNo}</span>
+      <span><strong>${isMr ? 'दिनांक:' : 'Issue Date:'}</strong> ${formatDate(closureDate)}</span>
+      <span><strong>${isMr ? 'पडताळणी कोड:' : 'Verification Code:'}</strong> ${verificationId}</span>
     </div>
 
     <div class="body-text">
-      This is to certify that <strong>${customerName}</strong> (Mobile: ${loan.customer?.mobile_number || 'N/A'}) has fully repaid and settled the Gold Loan obtained under Contract Number <strong>${loan.loan_number}</strong> from <strong>${s.shop_name}</strong>.
+      ${isMr
+        ? `प्रमाणित करण्यात येते की, सन्माननीय <strong>${customerName}</strong> (मोबाईल: ${loan.customer?.mobile_number || 'N/A'}) यांनी <strong>${s.shop_name}</strong> कडून घेतलेल्या सुवर्ण कर्ज खाते क्रमांक <strong>${loan.loan_number}</strong> ची मुद्दल व व्याजासह संपूर्ण परतफेड केलेली आहे.`
+        : `This is to certify that <strong>${customerName}</strong> (Mobile: ${loan.customer?.mobile_number || 'N/A'}) has fully repaid and settled the Gold Loan obtained under Contract Number <strong>${loan.loan_number}</strong> from <strong>${s.shop_name}</strong>.`
+      }
     </div>
 
     <div class="highlight-box">
-      <strong>✅ FULL SETTLEMENT ACKNOWLEDGEMENT:</strong><br/>
-      All dues including the principal loan amount of <strong>${formatCurrency(loan.loan_amount)}</strong>, total interest of <strong>${formatCurrency(financials.totalInterestPaid)}</strong>, and applicable operational charges have been received in full. As of <strong>${formatDate(closureDate)}</strong>, there are no outstanding financial liabilities, interest charges, or penalties against this loan.
+      <strong>${isMr ? '✅ संपूर्ण भरणा व खाते समाप्ती पावती:' : '✅ FULL SETTLEMENT ACKNOWLEDGEMENT:'}</strong><br/>
+      ${isMr
+        ? `एकूण वितरित मुद्दल रक्कम <strong>${formatCurrency(totalDisbursed)}</strong> आणि एकूण भरलेले व्याज <strong>${formatCurrency(financials.totalInterestPaid)}</strong> पूर्णपणे प्राप्त झाले आहे. दिनांक <strong>${formatDate(closureDate)}</strong> रोजी या कर्ज खात्यावर कोणतीही आर्थिक बाकी, व्याज किंवा दंड शिल्लक नाही.`
+        : `All dues including the total principal loan amount of <strong>${formatCurrency(totalDisbursed)}</strong>, total interest of <strong>${formatCurrency(financials.totalInterestPaid)}</strong>, and applicable charges have been received in full. As of <strong>${formatDate(closureDate)}</strong>, there are no outstanding financial liabilities against this loan.`
+      }
     </div>
 
     <div class="grid-info">
       <div class="info-card">
-        <div class="info-label">Borrower Name</div>
+        <div class="info-label">${isMr ? 'ग्राहकाचे नाव' : 'Borrower Name'}</div>
         <div class="info-val">${customerName}</div>
       </div>
       <div class="info-card">
-        <div class="info-label">Loan Sanction Amount</div>
-        <div class="info-val">${formatCurrency(loan.loan_amount)}</div>
+        <div class="info-label">${isMr ? 'एकूण वितरित मुद्दल' : 'Total Principal Loan'}</div>
+        <div class="info-val">${formatCurrency(totalDisbursed)}</div>
       </div>
       <div class="info-card">
-        <div class="info-label">Total Amount Paid</div>
-        <div class="info-val">${formatCurrency(loan.loan_amount + financials.totalInterestPaid)}</div>
+        <div class="info-label">${isMr ? 'एकूण जमा रक्कम (मुद्दल + व्याज)' : 'Total Amount Paid'}</div>
+        <div class="info-val">${formatCurrency(totalDisbursed + financials.totalInterestPaid)}</div>
       </div>
       <div class="info-card">
-        <div class="info-label">Pledged Asset Status</div>
-        <div class="info-val" style="color: #16a34a;">Handed Over to Customer</div>
+        <div class="info-label">${isMr ? 'तारण दागिन्यांची स्थिती' : 'Pledged Asset Status'}</div>
+        <div class="info-val" style="color: #16a34a;">${isMr ? 'ग्राहकास सुपूर्द केले ✅' : 'Handed Over to Customer ✅'}</div>
       </div>
     </div>
 
     <div class="body-text">
-      The pledged ornament assets (${loan.gold_item?.metal_type || 'Gold'} ${loan.gold_item?.ornament_type || 'Asset'}, ${formatWeight(loan.gold_item?.net_weight || 0)} net weight, Hallmark: ${loan.gold_item?.hallmark_number || 'HUID-Verified'}) have been physically inspected, verified, and returned to the customer in good condition.
+      ${isMr
+        ? `तारण ठेवलेले सोन्याचे दागिने (${loan.gold_item?.ornament_type || 'सोन्याचे दागिने'}, निव्वळ शुद्ध वजन: ${formatWeight(loan.gold_item?.net_weight || 0)}, हॉलमार्क HUID: ${loan.gold_item?.hallmark_number || 'HUID-Verified'}) योग्य स्थितीत ग्राहकास प्रत्यक्ष सुपूर्द करण्यात आले आहेत.`
+        : `The pledged ornament assets (${loan.gold_item?.ornament_type || 'Gold Asset'}, ${formatWeight(loan.gold_item?.net_weight || 0)} net pure weight, Hallmark: ${loan.gold_item?.hallmark_number || 'HUID-Verified'}) have been physically verified and returned to the borrower in good condition.`
+      }
     </div>
 
     <div class="seal-box">
       <div>
-        <div class="green-seal">✔ NO DUES REMAINING • PAID IN FULL</div>
+        <div class="green-seal">✔ ${isMr ? 'सर्व थकबाकी पूर्ण • खाते बंद' : 'NO DUES REMAINING • PAID IN FULL'}</div>
       </div>
       <div class="signature-area">
         <div class="sig-line"></div>
         <div style="font-size: 12px; font-weight: 800; color: #0f172a;">${closedBy}</div>
-        <div style="font-size: 10px; color: #64748b;">Authorized Signatory & Stamp</div>
+        <div style="font-size: 10px; color: #64748b;">${isMr ? 'अधिकृत स्वाक्षरी व पेढीचा शिक्का' : 'Authorized Signatory & Stamp'}</div>
       </div>
     </div>
 
     <div class="footer">
-      This is an official computer-generated document issued under SuvarnaLoan ERP Protocol. Verification ID: ${verificationId}.
+      ${isMr
+        ? `हा संगणकीकृत अधिकृत दाखला SuvarnaLoan ERP प्रणालीद्वारे जारी करण्यात आला आहे. पडताळणी कोड: ${verificationId}`
+        : `This is an official computer-generated document issued under SuvarnaLoan ERP Protocol. Verification ID: ${verificationId}.`
+      }
     </div>
   </div>
 </body>
@@ -137,193 +175,999 @@ export function generateNoDueCertificateHTML(opts: DocumentOptions): string {
 }
 
 /**
- * Generates Loan Closure Certificate HTML
+ * Generates Official Loan Closure Certificate HTML (Bilingual)
  */
 export function generateClosureCertificateHTML(opts: DocumentOptions): string {
-  const { loan, shop, closedBy = 'Rajesh Sharma (Owner)', closureDate = new Date().toISOString().split('T')[0] } = opts;
-  const s = shop || DEFAULT_SHOP_INFO;
-  const customerName = loan.customer?.full_name || 'Borrower Customer';
-  const certNo = `LCC-2026-${loan.id.replace(/\D/g, '').slice(-4) || '9012'}`;
-
-  const financials = calculateLoanFinancials(
-    loan.loan_amount,
-    loan.interest_rate,
-    loan.loan_date,
-    loan.due_date,
-    loan.payments
-  );
-
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <title>Loan Closure Certificate - ${loan.loan_number}</title>
-  <style>
-    @page { size: A4; margin: 15mm; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; margin: 0; padding: 20px; background: #fff; line-height: 1.4; }
-    .container { border: 2px solid #e2e8f0; border-radius: 16px; padding: 30px; background: #ffffff; }
-    .header-table { width: 100%; border-bottom: 2px solid #e2e8f0; padding-bottom: 15px; margin-bottom: 20px; }
-    .title { font-size: 22px; font-weight: 900; color: #0f172a; text-transform: uppercase; margin: 0; }
-    .subtitle { font-size: 11px; color: #16a34a; font-weight: 800; text-transform: uppercase; letter-spacing: 1px; margin-top: 4px; }
-    .section-head { font-size: 12px; font-weight: 800; color: #78350f; text-transform: uppercase; letter-spacing: 0.5px; margin: 20px 0 10px 0; border-bottom: 1px solid #fef3c7; padding-bottom: 4px; }
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px; }
-    .lbl { font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase; }
-    .val { font-size: 13px; font-weight: 800; color: #0f172a; margin-top: 2px; }
-    .status-badge { display: inline-block; background: #dcfce7; color: #15803d; border: 1px solid #86efac; padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 800; }
-    .footer { margin-top: 40px; display: flex; justify-content: space-between; align-items: flex-end; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <table class="header-table">
-      <tr>
-        <td>
-          <h1 class="title">🏆 ${s.shop_name}</h1>
-          <div style="font-size: 11px; color: #64748b;">${s.address}</div>
-        </td>
-        <td style="text-align: right;">
-          <div class="subtitle">Official Loan Closure Certificate</div>
-          <div style="font-size: 11px; font-weight: 700; color: #475569;">${certNo}</div>
-          <div style="font-size: 10px; color: #94a3b8;">Closed: ${formatDate(closureDate)}</div>
-        </td>
-      </tr>
-    </table>
-
-    <div class="section-head">1. Borrower & Contract Summary</div>
-    <div class="grid-2">
-      <div class="card"><div class="lbl">Borrower Customer</div><div class="val">${customerName}</div></div>
-      <div class="card"><div class="lbl">Loan Account Number</div><div class="val">${loan.loan_number}</div></div>
-      <div class="card"><div class="lbl">Disbursement Date</div><div class="val">${formatDate(loan.loan_date)}</div></div>
-      <div class="card"><div class="lbl">Final Closure Date</div><div class="val">${formatDate(closureDate)}</div></div>
-    </div>
-
-    <div class="section-head">2. Financial Settlement Breakdown</div>
-    <div class="grid-2">
-      <div class="card"><div class="lbl">Sanctioned Principal Loan</div><div class="val">${formatCurrency(loan.loan_amount)}</div></div>
-      <div class="card"><div class="lbl">Total Interest Earned & Paid</div><div class="val" style="color: #d97706;">${formatCurrency(financials.totalInterestPaid)}</div></div>
-      <div class="card"><div class="lbl">Total Amount Collected</div><div class="val" style="color: #16a34a;">${formatCurrency(loan.loan_amount + financials.totalInterestPaid)}</div></div>
-      <div class="card"><div class="lbl">Outstanding Balance Remaining</div><div class="val" style="color: #16a34a;">₹0.00 (Nil)</div></div>
-    </div>
-
-    <div class="section-head">3. Pledged Ornament Asset Audit</div>
-    <div class="grid-2">
-      <div class="card"><div class="lbl">Ornament Asset</div><div class="val">${loan.gold_item?.metal_type === 'Silver' ? '⚪ Silver' : '🟡 Gold'} ${loan.gold_item?.ornament_type || 'Item'} (${loan.gold_item?.purity || 'Standard Grade'})</div></div>
-      <div class="card"><div class="lbl">Net Pure Weight</div><div class="val">${formatWeight(loan.gold_item?.net_weight || 0)}</div></div>
-      <div class="card"><div class="lbl">Locker Packet #</div><div class="val">${loan.gold_item?.pocket_locker_number || 'LOCKER-A-01'}</div></div>
-      <div class="card"><div class="lbl">Vault Release Status</div><div class="val" style="color: #16a34a;">Released & Returned</div></div>
-    </div>
-
-    <div class="footer">
-      <div>
-        <span class="status-badge">✔ LOAN CLOSED SUCCESSFULLY • PAID IN FULL</span>
-      </div>
-      <div style="text-align: right;">
-        <div style="font-size: 12px; font-weight: 800; color: #0f172a;">${closedBy}</div>
-        <div style="font-size: 10px; color: #64748b;">Authorized Branch Officer</div>
-      </div>
-    </div>
-  </div>
-</body>
-</html>
-  `;
+  return generateNoDueCertificateHTML(opts);
 }
 
-
 /**
- * Generates Official Repayment Receipt HTML
+ * Generates Physical Gold Asset Handover & Release Voucher HTML (Bilingual)
  */
-export function generateRepaymentReceiptHTML(opts: DocumentOptions): string {
-  const { loan, shop } = opts;
+export function generatePhysicalGoldReleaseHTML(opts: DocumentOptions): string {
+  const { loan, shop, closedBy = 'Authorized Custodian' } = opts;
+  const lang = getActiveLanguage(opts);
+  const isMr = lang === 'mr';
   const s = shop || DEFAULT_SHOP_INFO;
-  const customerName = loan.customer?.full_name || 'Borrower Customer';
-  const receiptNo = `RCP-2026-${Math.floor(100000 + Math.random() * 900000)}`;
-
-  const financials = calculateLoanFinancials(
-    loan.loan_amount,
-    loan.interest_rate,
-    loan.loan_date,
-    loan.due_date,
-    loan.payments
-  );
-
-  const latestPayment = loan.payments && loan.payments.length > 0 ? loan.payments[loan.payments.length - 1] : null;
+  const customerName = loan.customer?.full_name || (isMr ? 'कर्जदार ग्राहक' : 'Borrower Customer');
+  const voucherNo = `REL-2026-${loan.id.replace(/\D/g, '').slice(-4) || '8841'}`;
 
   return `
 <!DOCTYPE html>
-<html>
+<html lang="${lang}">
 <head>
   <meta charset="utf-8"/>
-  <title>Repayment Receipt - ${loan.loan_number}</title>
+  <title>${isMr ? 'तारण सोने सुपूर्द पावती' : 'Gold Release Voucher'} - ${loan.loan_number}</title>
   <style>
+    ${FONT_STYLES}
     @page { size: A4; margin: 15mm; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; margin: 0; padding: 20px; background: #fff; line-height: 1.4; }
-    .container { border: 2px solid #cbd5e1; border-radius: 16px; padding: 25px; background: #ffffff; }
-    .header { text-align: center; border-bottom: 2px solid #059669; padding-bottom: 15px; margin-bottom: 20px; }
-    .title { font-size: 24px; font-weight: 900; color: #065f46; text-transform: uppercase; margin: 0; }
-    .badge { display: inline-block; background: #d1fae5; color: #047857; padding: 4px 14px; border-radius: 20px; font-size: 12px; font-weight: 800; margin-top: 8px; }
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; }
-    .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 14px; }
+    body { color: #0f172a; margin: 0; padding: 20px; background: #fff; line-height: 1.5; font-size: 12px; }
+    .container { border: 2px solid #cbd5e1; border-radius: 12px; padding: 25px; }
+    .header { text-align: center; border-bottom: 2px solid #d97706; padding-bottom: 12px; margin-bottom: 20px; }
+    .title { font-size: 22px; font-weight: 900; color: #78350f; text-transform: uppercase; margin: 0; }
+    .badge { display: inline-block; background: #fef3c7; color: #92400e; padding: 4px 14px; border-radius: 20px; font-size: 11px; font-weight: 800; margin-top: 6px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px; }
+    .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; }
     .lbl { font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase; }
     .val { font-size: 13px; font-weight: 800; color: #0f172a; margin-top: 2px; }
-    .table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 12px; }
-    .table th, .table td { border: 1px solid #e2e8f0; padding: 8px 12px; text-align: left; }
+    .table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 11px; }
+    .table th, .table td { border: 1px solid #e2e8f0; padding: 8px 10px; text-align: left; }
     .table th { background: #f1f5f9; color: #475569; font-weight: 800; }
-    .footer { margin-top: 30px; display: flex; justify-content: space-between; align-items: flex-end; }
+    .footer { margin-top: 40px; display: flex; justify-content: space-between; align-items: flex-end; }
   </style>
 </head>
 <body>
   <div class="container">
     <div class="header">
       <h1 class="title">👑 ${s.shop_name}</h1>
-      <div style="font-size: 11px; color: #64748b; margin-top: 2px;">${s.address} • Contact: ${s.mobile}</div>
-      <div><span class="badge">OFFICIAL REPAYMENT RECEIPT</span></div>
+      <div style="font-size: 11px; color: #64748b;">${s.address} • Contact: ${s.mobile}</div>
+      <div><span class="badge">${isMr ? 'तारण सोन्याचे दागिने सुपूर्द पावती (GOLD RELEASE VOUCHER)' : 'OFFICIAL PHYSICAL GOLD RELEASE VOUCHER'}</span></div>
     </div>
 
     <div style="display: flex; justify-content: space-between; font-size: 11px; color: #475569; margin-bottom: 15px; font-weight: 600;">
-      <span><strong>Receipt No:</strong> ${receiptNo}</span>
-      <span><strong>Date:</strong> ${formatDate(new Date().toISOString())}</span>
-      <span><strong>Loan Account:</strong> ${loan.loan_number}</span>
+      <span><strong>${isMr ? 'व्हाउचर क्रमांक:' : 'Voucher No:'}</strong> ${voucherNo}</span>
+      <span><strong>${isMr ? 'दिनांक:' : 'Date:'}</strong> ${formatDate(new Date().toISOString())}</span>
+      <span><strong>${isMr ? 'कर्ज खाते क्रमांक:' : 'Loan Account:'}</strong> ${loan.loan_number}</span>
     </div>
 
     <div class="grid-2">
-      <div class="card"><div class="lbl">Customer Name</div><div class="val">${customerName}</div></div>
-      <div class="card"><div class="lbl">Contact Mobile</div><div class="val">${loan.customer?.mobile_number || 'N/A'}</div></div>
-      <div class="card"><div class="lbl">Sanction Principal</div><div class="val">${formatCurrency(loan.loan_amount)}</div></div>
-      <div class="card"><div class="lbl">Pledged Asset</div><div class="val">${loan.gold_item?.metal_type === 'Silver' ? '⚪ Silver' : '🟡 Gold'} ${loan.gold_item?.ornament_type || 'Item'} (${formatWeight(loan.gold_item?.net_weight || 0)})</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'ग्राहकाचे नाव' : 'Customer Name'}</div><div class="val">${customerName}</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'मोबाईल फोन' : 'Mobile Number'}</div><div class="val">${loan.customer?.mobile_number || 'N/A'}</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'आधार कार्ड क्रमांक' : 'Aadhaar Card'}</div><div class="val">${loan.customer?.aadhaar_number || 'N/A'}</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'तिजोरी कप्पा क्रमांक' : 'Vault Locker Pocket #'}</div><div class="val">${loan.gold_item?.pocket_locker_number || 'LOCKER-A-01'}</div></div>
     </div>
 
-    <h3 style="font-size: 12px; font-weight: 800; color: #065f46; text-transform: uppercase; margin-bottom: 8px;">Recent Payment Received</h3>
-    <div class="card" style="background: #ecfdf5; border-color: #a7f3d0; margin-bottom: 20px;">
-      <div style="display: flex; justify-content: space-between; align-items: center;">
-        <div>
-          <div class="lbl" style="color: #047857;">Amount Paid</div>
-          <div style="font-size: 20px; font-weight: 900; color: #047857;">${latestPayment ? formatCurrency(latestPayment.amount) : formatCurrency(financials.totalInterestPaid)}</div>
-        </div>
-        <div style="text-align: right;">
-          <div class="lbl">Payment Type / Mode</div>
-          <div class="val">${latestPayment ? `${latestPayment.payment_type} (${latestPayment.payment_method})` : 'Interest Repayment'}</div>
-          <div style="font-size: 10px; color: #64748b;">${latestPayment ? formatDate(latestPayment.payment_date) : formatDate(new Date().toISOString())}</div>
-        </div>
-      </div>
-    </div>
+    <table class="table">
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>${isMr ? 'दागिन्याचे नाव' : 'Ornament Description'}</th>
+          <th>${isMr ? 'शुद्धता (कॅरेट)' : 'Purity Grade'}</th>
+          <th>${isMr ? 'स्थूल वजन (Gross Wt)' : 'Gross Weight'}</th>
+          <th>${isMr ? 'खडे वजावट' : 'Stone Deduction'}</th>
+          <th>${isMr ? 'निव्वळ शुद्ध वजन' : 'Net Pure Weight'}</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>1</td>
+          <td><strong>${loan.gold_item?.ornament_type || (isMr ? 'सोन्याचे दागिने' : 'Gold Asset')}</strong></td>
+          <td>${loan.gold_item?.purity || '22K (91.6%)'}</td>
+          <td>${formatWeight(loan.gold_item?.gross_weight || 0)}</td>
+          <td>${formatWeight(loan.gold_item?.stone_weight || 0)}</td>
+          <td><strong>${formatWeight(loan.gold_item?.net_weight || 0)}</strong></td>
+        </tr>
+      </tbody>
+    </table>
 
-    <h3 style="font-size: 12px; font-weight: 800; color: #1e293b; text-transform: uppercase; margin-bottom: 8px;">Updated Loan Account Balance</h3>
-    <div class="grid-2">
-      <div class="card"><div class="lbl">Total Interest Paid to Date</div><div class="val" style="color: #059669;">${formatCurrency(financials.totalInterestPaid)}</div></div>
-      <div class="card"><div class="lbl">Remaining Principal Due</div><div class="val">${formatCurrency(financials.remainingPrincipal)}</div></div>
-      <div class="card"><div class="lbl">Accrued Interest Pending</div><div class="val" style="color: #d97706;">${formatCurrency(financials.netAccruedInterest)}</div></div>
-      <div class="card"><div class="lbl">Total Outstanding Payable</div><div class="val" style="color: #dc2626;">${formatCurrency(financials.totalBalanceDue)}</div></div>
+    <div style="background: #f0fdf4; border: 1.5px solid #86efac; border-radius: 8px; padding: 12px; margin-top: 20px; font-size: 11px; line-height: 1.6;">
+      <strong>${isMr ? 'ग्राहकाची पावती व पुष्टीकरण:' : 'Borrower Handover Confirmation:'}</strong><br/>
+      ${isMr
+        ? `मी याद्वारे पुष्टी करतो/करते की, वरील नमूद केलेले तारण सोन्याचे दागिने मी प्रत्यक्ष तपासून, वजन खात्री करून पूर्णपणे सुस्थितीत ताब्यात घेतले आहेत. या कर्जाबाबत कोणतीही तक्रार शिल्लक नाही.`
+        : `I hereby confirm that I have physically inspected and received all the pledged gold ornaments listed above in good condition and exact weight. No claims remain against the shop.`
+      }
     </div>
 
     <div class="footer">
-      <div style="font-size: 10px; color: #64748b;">
-        Thank you for your repayment.<br/>Computer generated receipt. Signature not mandatory.
+      <div>
+        <div style="border-bottom: 1.5px solid #0f172a; width: 150px; margin-bottom: 4px;"></div>
+        <div style="font-size: 11px; font-weight: 800;">${isMr ? 'ग्राहकाची स्वाक्षरी' : 'Borrower Signature'}</div>
+        <div style="font-size: 9.5px; color: #64748b;">${customerName}</div>
       </div>
       <div style="text-align: right;">
-        <div style="border-bottom: 1.5px solid #0f172a; width: 140px; margin-left: auto; margin-bottom: 4px;"></div>
-        <div style="font-size: 11px; font-weight: 800; color: #0f172a;">Authorized Cashier</div>
+        <div style="border-bottom: 1.5px solid #0f172a; width: 150px; margin-left: auto; margin-bottom: 4px;"></div>
+        <div style="font-size: 11px; font-weight: 800;">${isMr ? 'पेढी अधिकारी स्वाक्षरी व शिक्का' : 'Vault Custodian / Stamp'}</div>
+        <div style="font-size: 9.5px; color: #64748b;">${closedBy}</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+/**
+ * Generates Official Loan Sanction Letter HTML (Bilingual)
+ */
+export function generateSanctionLetterHTML(opts: DocumentOptions): string {
+  const { loan, shop, closedBy = 'Branch Manager' } = opts;
+  const lang = getActiveLanguage(opts);
+  const isMr = lang === 'mr';
+  const s = shop || DEFAULT_SHOP_INFO;
+  const customerName = loan.customer?.full_name || (isMr ? 'कर्जदार ग्राहक' : 'Borrower Customer');
+  const sanctionNo = `SANC-2026-${loan.id.replace(/\D/g, '').slice(-4) || '8841'}`;
+
+  const financials = calculateLoanFinancials(
+    loan.loan_amount,
+    loan.interest_rate,
+    loan.loan_date,
+    loan.due_date,
+    loan.payments,
+    loan.repayment_model || 'Bullet Repayment',
+    loan.tenure_months || 12,
+    loan.disbursements || []
+  );
+
+  return `
+<!DOCTYPE html>
+<html lang="${lang}">
+<head>
+  <meta charset="utf-8"/>
+  <title>${isMr ? 'सुवर्ण कर्ज मंजुरी पत्र' : 'Sanction Letter'} - ${loan.loan_number}</title>
+  <style>
+    ${FONT_STYLES}
+    @page { size: A4; margin: 15mm; }
+    body { color: #0f172a; margin: 0; padding: 20px; background: #fff; line-height: 1.5; font-size: 12px; }
+    .container { border: 2px solid #cbd5e1; border-radius: 12px; padding: 25px; }
+    .header { text-align: center; border-bottom: 2px solid #b45309; padding-bottom: 12px; margin-bottom: 20px; }
+    .title { font-size: 22px; font-weight: 900; color: #78350f; text-transform: uppercase; margin: 0; }
+    .badge { display: inline-block; background: #fef3c7; color: #92400e; padding: 4px 14px; border-radius: 20px; font-size: 11px; font-weight: 800; margin-top: 6px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px; }
+    .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; }
+    .lbl { font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase; }
+    .val { font-size: 13px; font-weight: 800; color: #0f172a; margin-top: 2px; }
+    .footer { margin-top: 35px; display: flex; justify-content: space-between; align-items: flex-end; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 class="title">👑 ${s.shop_name}</h1>
+      <div style="font-size: 11px; color: #64748b;">${s.address} • GSTIN: ${s.gstin}</div>
+      <div><span class="badge">${isMr ? 'अधिकृत सुवर्ण कर्ज मंजुरी पत्र (LOAN SANCTION LETTER)' : 'OFFICIAL GOLD LOAN SANCTION LETTER'}</span></div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; font-size: 11px; color: #475569; margin-bottom: 15px; font-weight: 600;">
+      <span><strong>${isMr ? 'मंजुरी पत्र क्रमांक:' : 'Sanction No:'}</strong> ${sanctionNo}</span>
+      <span><strong>${isMr ? 'मंजुरी दिनांक:' : 'Sanction Date:'}</strong> ${formatDate(loan.loan_date)}</span>
+      <span><strong>${isMr ? 'कर्ज खाते क्रमांक:' : 'Loan Account:'}</strong> ${loan.loan_number}</span>
+    </div>
+
+    <div class="grid-2">
+      <div class="card"><div class="lbl">${isMr ? 'कर्जदाराचे नाव' : 'Borrower Name'}</div><div class="val">${customerName}</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'मोबाईल क्रमांक' : 'Mobile Number'}</div><div class="val">${loan.customer?.mobile_number || 'N/A'}</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'मंजूर मुद्दल रक्कम' : 'Sanctioned Principal'}</div><div class="val" style="color: #15803d;">${formatCurrency(financials.totalDisbursed || loan.loan_amount)}</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'मासिक व्याजदर' : 'Monthly Rate'}</div><div class="val">${loan.interest_rate}% / ${isMr ? 'महिना' : 'Month'} (${loan.interest_rate * 12}% p.a.)</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'कर्ज मुदत' : 'Tenure'}</div><div class="val">${loan.tenure_months || 12} ${isMr ? 'महिने' : 'Months'}</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'मुदत समाप्ती दिनांक' : 'Maturity / Due Date'}</div><div class="val">${formatDate(loan.due_date)}</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'तारण दागिने' : 'Pledged Asset'}</div><div class="val">${loan.gold_item?.ornament_type || 'Gold Asset'} (${formatWeight(loan.gold_item?.net_weight || 0)})</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'परतफेड पद्धत' : 'Repayment Model'}</div><div class="val">${loan.repayment_model || 'Bullet Repayment'}</div></div>
+    </div>
+
+    <div class="footer">
+      <div>
+        <div style="border-bottom: 1.5px solid #0f172a; width: 150px; margin-bottom: 4px;"></div>
+        <div style="font-size: 11px; font-weight: 800;">${isMr ? 'कर्जदाराची स्वाक्षरी' : 'Borrower Acceptance'}</div>
+      </div>
+      <div style="text-align: right;">
+        <div style="border-bottom: 1.5px solid #0f172a; width: 150px; margin-left: auto; margin-bottom: 4px;"></div>
+        <div style="font-size: 11px; font-weight: 800;">${isMr ? 'मंजुरी अधिकारी स्वाक्षरी' : 'Sanctioning Officer'}</div>
+        <div style="font-size: 9.5px; color: #64748b;">${closedBy}</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+/**
+ * Generates Gold Valuation Appraisal Certificate HTML (Bilingual)
+ */
+export function generateGoldValuationReceiptHTML(opts: DocumentOptions): string {
+  const { loan, shop, closedBy = 'Certified Gold Appraiser' } = opts;
+  const lang = getActiveLanguage(opts);
+  const isMr = lang === 'mr';
+  const s = shop || DEFAULT_SHOP_INFO;
+  const customerName = loan.customer?.full_name || (isMr ? 'कर्जदार ग्राहक' : 'Borrower Customer');
+  const valNo = `VAL-2026-${loan.id.replace(/\D/g, '').slice(-4) || '8841'}`;
+
+  return `
+<!DOCTYPE html>
+<html lang="${lang}">
+<head>
+  <meta charset="utf-8"/>
+  <title>${isMr ? 'सोन्याचे मूल्यांकन प्रमाणपत्र' : 'Valuation Certificate'} - ${loan.loan_number}</title>
+  <style>
+    ${FONT_STYLES}
+    @page { size: A4; margin: 15mm; }
+    body { color: #0f172a; margin: 0; padding: 20px; background: #fff; line-height: 1.5; font-size: 12px; }
+    .container { border: 2px solid #cbd5e1; border-radius: 12px; padding: 25px; }
+    .header { text-align: center; border-bottom: 2px solid #d97706; padding-bottom: 12px; margin-bottom: 20px; }
+    .title { font-size: 22px; font-weight: 900; color: #78350f; text-transform: uppercase; margin: 0; }
+    .badge { display: inline-block; background: #fef3c7; color: #92400e; padding: 4px 14px; border-radius: 20px; font-size: 11px; font-weight: 800; margin-top: 6px; }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px; }
+    .card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 10px 14px; }
+    .lbl { font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase; }
+    .val { font-size: 13px; font-weight: 800; color: #0f172a; margin-top: 2px; }
+    .footer { margin-top: 35px; display: flex; justify-content: space-between; align-items: flex-end; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1 class="title">👑 ${s.shop_name}</h1>
+      <div style="font-size: 11px; color: #64748b;">${s.address}</div>
+      <div><span class="badge">${isMr ? 'सोन्याचे मूल्यांकन व शुद्धता प्रमाणपत्र (GOLD APPRAISAL CERTIFICATE)' : 'CERTIFICATE OF GOLD VALUATION & APPRAISAL'}</span></div>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; font-size: 11px; color: #475569; margin-bottom: 15px; font-weight: 600;">
+      <span><strong>${isMr ? 'प्रमाणपत्र क्रमांक:' : 'Certificate No:'}</strong> ${valNo}</span>
+      <span><strong>${isMr ? 'दिनांक:' : 'Date:'}</strong> ${formatDate(loan.loan_date)}</span>
+      <span><strong>${isMr ? 'कर्ज खाते क्रमांक:' : 'Loan Account:'}</strong> ${loan.loan_number}</span>
+    </div>
+
+    <div class="grid-2">
+      <div class="card"><div class="lbl">${isMr ? 'ग्राहकाचे नाव' : 'Customer Name'}</div><div class="val">${customerName}</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'दागिन्याचे नाव' : 'Ornament Type'}</div><div class="val">${loan.gold_item?.ornament_type || 'Gold Asset'}</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'शुद्धता (कॅरेट)' : 'Purity Grade'}</div><div class="val">${loan.gold_item?.purity || '22K (91.6%)'}</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'हॉलमार्क HUID' : 'Hallmark HUID'}</div><div class="val">${loan.gold_item?.hallmark_number || 'HUID-Verified'}</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'एकूण स्थूल वजन' : 'Gross Weight'}</div><div class="val">${formatWeight(loan.gold_item?.gross_weight || 0)}</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'खडे वजावट' : 'Stone Deduction'}</div><div class="val">${formatWeight(loan.gold_item?.stone_weight || 0)}</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'निव्वळ शुद्ध वजन' : 'Net Pure Weight'}</div><div class="val" style="color: #b45309;">${formatWeight(loan.gold_item?.net_weight || 0)}</div></div>
+      <div class="card"><div class="lbl">${isMr ? 'बाजारभाव मूल्यांकन' : 'Appraised Market Value'}</div><div class="val" style="color: #15803d;">${formatCurrency(loan.gold_item?.estimated_value || (loan.gold_item?.net_weight || 0) * 7200)}</div></div>
+    </div>
+
+    <div class="footer">
+      <div>
+        <div style="border-bottom: 1.5px solid #0f172a; width: 150px; margin-bottom: 4px;"></div>
+        <div style="font-size: 11px; font-weight: 800;">${isMr ? 'ग्राहकाची स्वाक्षरी' : 'Customer Signature'}</div>
+      </div>
+      <div style="text-align: right;">
+        <div style="border-bottom: 1.5px solid #0f172a; width: 150px; margin-left: auto; margin-bottom: 4px;"></div>
+        <div style="font-size: 11px; font-weight: 800;">${isMr ? 'अधिकृत सुवर्ण परीक्षक' : 'Certified Gold Appraiser'}</div>
+        <div style="font-size: 9.5px; color: #64748b;">${closedBy}</div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+/**
+ * Generates Enterprise Banking-Grade Loan Account Statement HTML (Bilingual)
+ */
+export function generateEnterpriseLoanStatementHTML(opts: DocumentOptions): string {
+  const { loan, shop, closedBy = 'Authorized Cashier' } = opts;
+  const lang = getActiveLanguage(opts);
+  const isMr = lang === 'mr';
+  const s = shop || DEFAULT_SHOP_INFO;
+  const customerName = loan.customer?.full_name || (isMr ? 'कर्जदार ग्राहक' : 'Borrower Customer');
+  const docId = `SL-STMT-${loan.loan_number}-${new Date().getFullYear()}`;
+  const nowStr = `${formatDate(new Date().toISOString())} • ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
+  const secHash = `SEC-SHA256-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
+
+  const financials = calculateLoanFinancials(
+    loan.loan_amount,
+    loan.interest_rate,
+    loan.loan_date,
+    loan.due_date,
+    loan.payments,
+    loan.repayment_model || 'Bullet Repayment',
+    loan.tenure_months || 12,
+    loan.disbursements || []
+  );
+
+  const payments = Array.isArray(loan.payments) ? loan.payments : [];
+  const totalDisbursed = financials.totalDisbursed || loan.loan_amount;
+
+  return `
+<!DOCTYPE html>
+<html lang="${lang}">
+<head>
+  <meta charset="utf-8"/>
+  <title>${isMr ? 'सुवर्ण कर्ज खाते विवरण' : 'Enterprise Loan Statement'} - ${loan.loan_number}</title>
+  <style>
+    ${FONT_STYLES}
+    @page { size: A4 portrait; margin: 12mm; }
+    * { box-sizing: border-box; }
+    body {
+      color: #0f172a;
+      background: #ffffff;
+      margin: 0;
+      padding: 0;
+      font-size: 11px;
+      line-height: 1.4;
+    }
+    .page-container {
+      position: relative;
+      padding: 24px;
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      background: #ffffff;
+      min-height: 1000px;
+    }
+    .watermark {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) rotate(-35deg);
+      font-size: 44px;
+      font-weight: 900;
+      color: rgba(226, 232, 240, 0.45);
+      white-space: nowrap;
+      pointer-events: none;
+      user-select: none;
+      z-index: 0;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+    }
+    .content-wrap { position: relative; z-index: 1; }
+    .bank-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      border-bottom: 2.5px solid #b45309;
+      padding-bottom: 14px;
+      margin-bottom: 16px;
+    }
+    .brand-title {
+      font-size: 22px;
+      font-weight: 900;
+      color: #78350f;
+      letter-spacing: -0.5px;
+      margin: 0;
+    }
+    .shop-meta {
+      font-size: 10px;
+      color: #475569;
+      margin-top: 4px;
+      line-height: 1.35;
+    }
+    .doc-badge-box { text-align: right; }
+    .doc-title-badge {
+      display: inline-block;
+      background: #78350f;
+      color: #ffffff;
+      padding: 5px 14px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .doc-meta {
+      font-size: 9.5px;
+      color: #64748b;
+      margin-top: 6px;
+      font-family: monospace;
+    }
+    .section-header {
+      font-size: 11px;
+      font-weight: 800;
+      color: #78350f;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1.5px solid #fef3c7;
+      padding-bottom: 4px;
+      margin-top: 16px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; }
+    .info-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 8px 12px;
+    }
+    .card-label { font-size: 9px; font-weight: 700; color: #64748b; text-transform: uppercase; }
+    .card-value { font-size: 12px; font-weight: 800; color: #0f172a; margin-top: 2px; }
+    .kpi-card {
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+    }
+    .kpi-label { font-size: 9.5px; font-weight: 700; color: #64748b; text-transform: uppercase; }
+    .kpi-val { font-size: 15px; font-weight: 900; margin-top: 2px; }
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 6px;
+      font-size: 10px;
+    }
+    .data-table th, .data-table td {
+      border: 1px solid #e2e8f0;
+      padding: 6px 10px;
+      text-align: left;
+    }
+    .data-table th {
+      background: #f1f5f9;
+      color: #334155;
+      font-weight: 800;
+      text-transform: uppercase;
+      font-size: 9px;
+    }
+    .data-table tr:nth-child(even) { background: #f8fafc; }
+    .data-table tr.total-row { background: #fef3c7; font-weight: 800; }
+    .bottom-section {
+      margin-top: 20px;
+      padding-top: 14px;
+      border-top: 1.5px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+    .stamp-box {
+      border: 2px dashed #16a34a;
+      color: #15803d;
+      padding: 8px 14px;
+      border-radius: 12px;
+      font-size: 10.5px;
+      font-weight: 900;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      display: inline-block;
+      transform: rotate(-3deg);
+      background: #f0fdf4;
+    }
+    .sig-box { text-align: center; width: 150px; }
+    .sig-line { border-bottom: 1.5px solid #0f172a; margin-bottom: 4px; height: 35px; }
+    .footer-bar {
+      margin-top: 16px;
+      padding-top: 8px;
+      border-top: 1px solid #f1f5f9;
+      font-size: 8.5px;
+      color: #94a3b8;
+      display: flex;
+      justify-content: space-between;
+    }
+  </style>
+</head>
+<body>
+  <div class="page-container">
+    <div class="watermark">SUVARNA LOAN ERP • ${isMr ? 'अधिकृत बँक खातेवही' : 'OFFICIAL BANKING RECORD'}</div>
+
+    <div class="content-wrap">
+      <!-- 1. Header & Bank Metadata -->
+      <div class="bank-header">
+        <div>
+          <h1 class="brand-title">👑 ${s.shop_name}</h1>
+          <div class="shop-meta">
+            ${s.address}<br/>
+            <strong>${isMr ? 'संपर्क:' : 'Contact:'}</strong> ${s.mobile} • <strong>Email:</strong> ${s.email}<br/>
+            <strong>GSTIN:</strong> ${s.gstin} • <strong>${isMr ? 'सुवर्ण कर्ज परवाना:' : 'NBFC License #:'}</strong> ${s.license_number}
+          </div>
+        </div>
+
+        <div class="doc-badge-box">
+          <span class="doc-title-badge">${isMr ? 'सुवर्ण कर्ज खाते विवरण' : 'LOAN ACCOUNT STATEMENT'}</span>
+          <div class="doc-meta">
+            Doc ID: <strong>${docId}</strong><br/>
+            ${isMr ? 'दिनांक:' : 'Generated:'} <strong>${nowStr}</strong><br/>
+            Audit Hash: <strong>${secHash}</strong>
+          </div>
+        </div>
+      </div>
+
+      <!-- 2. Borrower CRM Profile & KYC Section -->
+      <div class="section-header">
+        <span>👤 ${isMr ? 'ग्राहक तपशील व केवायसी पडताळणी' : 'Borrower Profile & Masked KYC Audit Summary'}</span>
+        <span style="color: #15803d; font-size: 9.5px; font-weight: 800;">${isMr ? 'केवायसी पूर्ण ✅' : 'KYC VERIFIED ✅'}</span>
+      </div>
+
+      <div class="grid-2">
+        <div class="info-card">
+          <div class="card-label">${isMr ? 'कर्जदाराचे पूर्ण नाव' : 'Borrower Full Name'}</div>
+          <div class="card-value">${customerName}</div>
+          <div style="font-size: 9.5px; color: #64748b; margin-top: 2px;">
+            Customer ID: <strong>${loan.customer?.id || 'CUST-8841'}</strong>
+          </div>
+        </div>
+
+        <div class="info-card">
+          <div class="card-label">${isMr ? 'संपर्क व निवासी पत्ता' : 'Contact & Residential Address'}</div>
+          <div style="font-size: 10.5px; font-weight: 700; color: #1e293b; margin-top: 2px;">
+            📞 <strong>${loan.customer?.mobile_number || 'N/A'}</strong> (Alt: ${loan.customer?.alternate_mobile || 'N/A'})
+          </div>
+          <div style="font-size: 9.5px; color: #475569; margin-top: 2px;">
+            🏠 ${loan.customer?.address || 'Address on file'}
+          </div>
+        </div>
+      </div>
+
+      <div class="grid-4" style="margin-top: 8px;">
+        <div class="info-card">
+          <div class="card-label">${isMr ? 'आधार क्रमांक' : 'Aadhaar (Masked)'}</div>
+          <div class="card-value" style="font-family: monospace;">XXXX-XXXX-${loan.customer?.aadhaar_number?.slice(-4) || '8841'}</div>
+        </div>
+        <div class="info-card">
+          <div class="card-label">${isMr ? 'पॅन क्रमांक' : 'PAN Number (Masked)'}</div>
+          <div class="card-value" style="font-family: monospace;">XXXXX${loan.customer?.pan_number?.slice(-4) || '8841K'}</div>
+        </div>
+        <div class="info-card">
+          <div class="card-label">${isMr ? 'वारसदार (नॉमिनी)' : 'Nominee Relation'}</div>
+          <div class="card-value">${loan.customer?.nominee_name || 'Nominee'} (${loan.customer?.nominee_relation || 'Family'})</div>
+        </div>
+        <div class="info-card">
+          <div class="card-label">${isMr ? 'क्रेडिट स्कोर' : 'Credit Score'}</div>
+          <div class="card-value" style="color: #15803d;">780 / 900 (${isMr ? 'उत्कृष्ट' : 'Excellent'})</div>
+        </div>
+      </div>
+
+      <!-- 3. Loan Terms & Account Financial Summary -->
+      <div class="section-header">
+        <span>🏦 ${isMr ? 'सुवर्ण कर्ज मंजूर अटी व वित्तीय विवरण' : 'Loan Sanction Terms & Financial Ledger Summary'}</span>
+        <span style="color: #78350f; font-size: 9.5px;">${isMr ? 'कर्ज खाते क्रमांक:' : 'Contract #:'} <strong>${loan.loan_number}</strong></span>
+      </div>
+
+      <div class="grid-4">
+        <div class="kpi-card" style="border-left: 4px solid #0f172a;">
+          <div class="kpi-label">${isMr ? 'एकूण वितरित मुद्दल' : 'Total Disbursed'}</div>
+          <div class="kpi-val" style="color: #0f172a;">${formatCurrency(totalDisbursed)}</div>
+          <div style="font-size: 8.5px; color: #64748b; margin-top: 2px;">Rate: ${loan.interest_rate}%/mo (${loan.interest_rate * 12}% p.a.)</div>
+        </div>
+
+        <div class="kpi-card" style="border-left: 4px solid #16a34a;">
+          <div class="kpi-label">${isMr ? 'एकूण भरलेले व्याज' : 'Total Interest Paid'}</div>
+          <div class="kpi-val" style="color: #16a34a;">${formatCurrency(financials.totalInterestPaid)}</div>
+          <div style="font-size: 8.5px; color: #64748b; margin-top: 2px;">${isMr ? 'परत केलेले मुद्दल:' : 'Principal Paid:'} ${formatCurrency(financials.totalPrincipalPaid)}</div>
+        </div>
+
+        <div class="kpi-card" style="border-left: 4px solid #d97706;">
+          <div class="kpi-label">${isMr ? 'देय थकीत व्याज' : 'Accrued Interest Due'}</div>
+          <div class="kpi-val" style="color: #d97706;">${formatCurrency(financials.netAccruedInterest)}</div>
+          <div style="font-size: 8.5px; color: #64748b; margin-top: 2px;">${isMr ? 'कालावधी:' : 'Elapsed:'} ${financials.elapsedMonths} ${isMr ? 'महिने' : 'mos'} (${financials.elapsedDays}d)</div>
+        </div>
+
+        <div class="kpi-card" style="border-left: 4px solid #dc2626;">
+          <div class="kpi-label">${isMr ? 'एकूण येणे थकबाकी' : 'Total Balance Due'}</div>
+          <div class="kpi-val" style="color: #dc2626;">${formatCurrency(financials.totalBalanceDue)}</div>
+          <div style="font-size: 8.5px; color: #64748b; margin-top: 2px;">${isMr ? 'मुदत दिनांक:' : 'Due Date:'} ${formatDate(loan.due_date)}</div>
+        </div>
+      </div>
+
+      <!-- 4. Pledged Gold Ornament Asset Breakdown Table -->
+      <div class="section-header">
+        <span>🟡 ${isMr ? 'तारण ठेवलेले सोन्याचे दागिने व तिजोरी तपशील' : 'Pledged Gold Asset Vault Breakdown'}</span>
+        <span style="color: #64748b; font-size: 9.5px;">${isMr ? 'लॉकर कप्पा:' : 'Locker:'} <strong>${loan.gold_item?.pocket_locker_number || 'LOCKER-A-01'}</strong></span>
+      </div>
+
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>${isMr ? 'दागिन्याचे नाव' : 'Ornament Item'}</th>
+            <th>${isMr ? 'धातू प्रकार' : 'Category / Metal'}</th>
+            <th>${isMr ? 'शुद्धता (कॅरेट)' : 'Purity Karat'}</th>
+            <th>${isMr ? 'स्थूल वजन (g)' : 'Gross Wt (g)'}</th>
+            <th>${isMr ? 'खडे वजावट (g)' : 'Stones (g)'}</th>
+            <th>${isMr ? 'निव्वळ शुद्ध सोने (g)' : 'Net Pure Wt (g)'}</th>
+            <th>${isMr ? 'मूल्यांकन रक्कम' : 'Est. Market Value'}</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td><strong>${loan.gold_item?.ornament_type || (isMr ? 'सोन्याचे दागिने' : 'Gold Ornament Item')}</strong></td>
+            <td>${loan.gold_item?.metal_type === 'Silver' ? (isMr ? '⚪ चांदी' : '⚪ Silver') : (isMr ? '🟡 सोने' : '🟡 Gold')}</td>
+            <td><strong>${loan.gold_item?.purity || '22K (91.6%)'}</strong></td>
+            <td>${formatWeight(loan.gold_item?.gross_weight || 0)}</td>
+            <td>${formatWeight(loan.gold_item?.stone_weight || 0)}</td>
+            <td><strong>${formatWeight(loan.gold_item?.net_weight || 0)}</strong></td>
+            <td><strong>${formatCurrency((loan.gold_item?.net_weight || 0) * 7200)}</strong></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- 4.1 Disbursement Tranches Breakdown Table -->
+      <div class="section-header">
+        <span>⚡ ${isMr ? 'कर्ज वितरण टप्पे व स्वतंत्र व्याज आकारणी' : 'Multi-Disbursement Tranches & Independent Interest Periods'}</span>
+        <span style="color: #78350f; font-size: 9.5px;">${isMr ? 'एकूण टप्पे:' : 'Tranches:'} <strong>${(financials.trancheBreakdown || []).length}</strong></span>
+      </div>
+
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>${isMr ? 'टप्पा #' : 'Tranche #'}</th>
+            <th>${isMr ? 'वितरित मुद्दल' : 'Amount Disbursed'}</th>
+            <th>${isMr ? 'वितरण दिनांक' : 'Disbursement Date'}</th>
+            <th>${isMr ? 'व्याजदर' : 'Interest Rate'}</th>
+            <th>${isMr ? 'देय थकीत व्याज' : 'Accrued Interest'}</th>
+            <th>${isMr ? 'शिल्लक मुद्दल' : 'Principal Outstanding'}</th>
+            <th>${isMr ? 'स्थिती' : 'Status'}</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${(financials.trancheBreakdown || []).map((t: any) => `
+            <tr>
+              <td><strong>${isMr ? `टप्पा #${t.disbursementNumber}` : `Tranche #${t.disbursementNumber}`}</strong></td>
+              <td style="font-weight: 800;">${formatCurrency(t.originalAmount)}</td>
+              <td>${formatDate(t.disbursementDate)} (${t.elapsedDays}d)</td>
+              <td>${t.monthlyInterestRate}% / ${isMr ? 'महिना' : 'mo'}</td>
+              <td style="color: #d97706; font-weight: 800;">${formatCurrency(t.netAccruedInterest)}</td>
+              <td style="color: #16a34a; font-weight: 800;">${formatCurrency(t.remainingPrincipal)}</td>
+              <td><span style="color: ${t.remainingPrincipal <= 0 ? '#16a34a' : '#d97706'}; font-weight: 800;">${t.remainingPrincipal <= 0 ? (isMr ? 'परतफेड पूर्ण ✅' : 'SETTLED ✅') : (isMr ? 'सक्रिय 🟡' : 'ACTIVE 🟡')}</span></td>
+            </tr>
+          `).join('')}
+          <tr class="total-row">
+            <td>${isMr ? 'एकूण एकत्रित कर्ज:' : 'TOTAL COMBINED:'}</td>
+            <td>${formatCurrency(totalDisbursed)}</td>
+            <td>-</td>
+            <td>-</td>
+            <td style="color: #d97706;">${formatCurrency(financials.netAccruedInterest)}</td>
+            <td style="color: #16a34a;">${formatCurrency(financials.remainingPrincipal)}</td>
+            <td>${financials.remainingPrincipal <= 0 ? (isMr ? 'बंद' : 'CLOSED') : (isMr ? 'सक्रिय' : 'ACTIVE')}</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- 5. Repayment Ledger -->
+      <div class="section-header">
+        <span>📜 ${isMr ? 'कर्ज परतफेड व्यवहार खातेवही' : 'Complete Repayment Transaction History Ledger'}</span>
+        <span style="color: #64748b; font-size: 9.5px;">${isMr ? 'एकूण व्यवहार:' : 'Total Transactions:'} <strong>${payments.length}</strong></span>
+      </div>
+
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>${isMr ? 'पावती क्रमांक' : 'Receipt #'}</th>
+            <th>${isMr ? 'दिनांक' : 'Payment Date'}</th>
+            <th>${isMr ? 'भरणा प्रकार' : 'Payment Purpose'}</th>
+            <th>${isMr ? 'भरणा पद्धत' : 'Method'}</th>
+            <th>${isMr ? 'संदर्भ / नोंद' : 'Notes / Voucher'}</th>
+            <th>${isMr ? 'जमा रक्कम' : 'Amount Received'}</th>
+            <th>${isMr ? 'स्थिती' : 'Status'}</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${payments.length === 0 ? `
+            <tr>
+              <td colspan="7" style="text-align: center; color: #94a3b8; padding: 12px;">
+                ${isMr ? 'कोणतेही भरणा व्यवहार नोंदवलेले नाहीत.' : 'No repayment transactions recorded yet.'}
+              </td>
+            </tr>
+          ` : payments.map((p, idx) => `
+            <tr>
+              <td style="font-family: monospace; font-weight: 700;">${p.receipt_number || `REC-${(idx + 1).toString().padStart(4, '0')}`}</td>
+              <td>${formatDate(p.payment_date)}</td>
+              <td><strong>${p.payment_type}</strong></td>
+              <td>${p.payment_method}</td>
+              <td style="font-size: 9px;">${p.notes || '-'}</td>
+              <td style="color: #16a34a; font-weight: 800;">${formatCurrency(p.amount)}</td>
+              <td><span style="color: #16a34a; font-weight: 800;">${isMr ? 'यशस्वी ✅' : 'SUCCESS ✅'}</span></td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+
+      <!-- 6. Security QR & Signatures -->
+      <div class="bottom-section">
+        <div>
+          <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="width: 60px; height: 60px; border: 1.5px solid #0f172a; border-radius: 6px; padding: 4px; background: #fff; text-align: center;">
+              <div style="font-size: 8px; font-weight: 900; color: #0f172a;">SCAN QR</div>
+              <div style="font-size: 14px; margin-top: 1px;">🏁📱</div>
+              <div style="font-size: 7px; color: #64748b; font-family: monospace;">VERIFY</div>
+            </div>
+
+            <div>
+              <div class="stamp-box">
+                SUVARNA LOAN ERP<br/>
+                ${isMr ? 'पडताळणी पूर्ण ✅' : 'AUDITED & VERIFIED ✅'}
+              </div>
+              <div style="font-size: 8.5px; color: #64748b; margin-top: 4px; font-family: monospace;">
+                Verification URL: https://suvarnaloan.com/verify?id=${loan.loan_number}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 24px;">
+          <div class="sig-box">
+            <div class="sig-line"></div>
+            <div style="font-size: 10px; font-weight: 800; color: #0f172a;">${isMr ? 'कर्जदाराची स्वाक्षरी' : 'Borrower Signature'}</div>
+            <div style="font-size: 8.5px; color: #64748b;">${customerName}</div>
+          </div>
+
+          <div class="sig-box">
+            <div class="sig-line"></div>
+            <div style="font-size: 10px; font-weight: 800; color: #0f172a;">${isMr ? 'अधिकृत कॅशियर / शिक्का' : 'Authorized Cashier / Stamp'}</div>
+            <div style="font-size: 8.5px; color: #64748b;">${s.owner_name}</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 7. Footer -->
+      <div class="footer-bar">
+        <div>
+          ${isMr
+            ? `हे ${s.shop_name} द्वारे जारी केलेले डिजिटल कर्ज खाते विवरण आहे.`
+            : `This document is an enterprise digitally generated Loan Statement issued by ${s.shop_name}.`
+          }
+        </div>
+        <div>
+          ${isMr ? 'ग्राहक सेवा:' : 'Customer Support:'} ${s.mobile} • Page 1 of 1
+        </div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+  `;
+}
+
+/**
+ * Generates official GST & Banking Grade Single Payment Receipt HTML (Bilingual)
+ * Displays: Borrower's Full Name, Loan Account Number, Disbursed Amount,
+ * Payment Amount, Payment Date, Total Amount Paid Till Date, and Remaining Outstanding Amount.
+ */
+export function generateSinglePaymentReceiptHTML(payment: Payment, shop?: Shop | null, language?: 'en' | 'mr'): string {
+  const lang = language || (typeof window !== 'undefined' ? (localStorage.getItem('sl_language') as 'en' | 'mr') : 'en') || 'en';
+  const isMr = lang === 'mr';
+  const s = shop || DEFAULT_SHOP_INFO;
+
+  const loan = payment.loan;
+  const custName = loan?.customer?.full_name || (payment as any).customer_name || (isMr ? 'कर्जदार ग्राहक' : 'Borrower Customer');
+  const custMobile = loan?.customer?.mobile_number || (payment as any).customer_mobile || 'N/A';
+  const custAddress = loan?.customer?.address || (isMr ? 'स्थानिक पत्ता' : 'Local Address');
+  const loanNo = loan?.loan_number || (payment as any).loan_number || 'GL-2026-0001';
+  const loanDate = loan?.loan_date || payment.payment_date;
+  const ornamentName = loan?.gold_item?.ornament_type || (isMr ? 'तारण सोन्याचे दागिने' : 'Gold Item Collateral');
+  const netWeight = loan?.gold_item?.net_weight || 0;
+  const purity = loan?.gold_item?.purity || '22K (91.6%)';
+
+  // 1. Disbursed Amount
+  const rawDisbursed = Number(loan?.total_disbursed || loan?.loan_amount || (payment as any).disbursed_amount || 0);
+  const disbursedAmount = rawDisbursed > 0 ? rawDisbursed : Number(payment.amount || 0);
+
+  // 2. Current Payment Amount
+  const paymentAmount = Number(payment.amount || 0);
+
+  // 3. Payments calculation & ordering
+  const allLoanPayments: Payment[] = Array.isArray(loan?.payments) && loan.payments.length > 0
+    ? loan.payments
+    : [payment];
+
+  // Sort chronological
+  const sortedPayments = [...allLoanPayments].sort((a, b) => {
+    const da = new Date(a.created_at || a.payment_date || 0).getTime();
+    const db = new Date(b.created_at || b.payment_date || 0).getTime();
+    return da - db;
+  });
+
+  // Identify index of current receipt
+  const currentIdx = sortedPayments.findIndex(p => p.id === payment.id || p.receipt_number === payment.receipt_number);
+  const paymentsUpToThis = currentIdx !== -1 ? sortedPayments.slice(0, currentIdx + 1) : sortedPayments;
+
+  // 4. Total Amount Paid Till Date
+  const totalPaidTillDate = paymentsUpToThis.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+  // 5. Remaining Outstanding Amount
+  const isFullSettlement = (payment.payment_type || '').toLowerCase().includes('full settlement') || (payment.payment_type || '').toLowerCase().includes('closure');
+  const remainingOutstanding = isFullSettlement
+    ? 0
+    : Math.max(0, disbursedAmount - totalPaidTillDate);
+
+  const isClosed = remainingOutstanding <= 0 || isFullSettlement;
+
+  return `
+<!DOCTYPE html>
+<html lang="${lang}">
+<head>
+  <meta charset="utf-8"/>
+  <title>${isMr ? 'सुवर्ण कर्ज भरणा पावती' : 'Gold Loan Repayment Receipt'} - ${payment.receipt_number || 'REC-2026-0000'}</title>
+  <style>
+    ${FONT_STYLES}
+    @page { size: A4 portrait; margin: 12mm; }
+    body { color: #0f172a; margin: 0; padding: 15px; background: #fff; line-height: 1.45; font-size: 11.5px; font-family: system-ui, -apple-system, sans-serif; }
+    .receipt-container { border: 2px solid #cbd5e1; padding: 22px; border-radius: 12px; max-width: 820px; margin: 0 auto; background: #ffffff; }
+    .header { border-bottom: 2px solid #f59e0b; padding-bottom: 12px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: flex-start; }
+    .shop-title { font-size: 20px; font-weight: 900; color: #78350f; margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
+    .shop-sub { font-size: 10.5px; color: #64748b; margin-top: 3px; }
+    .receipt-badge { background: linear-gradient(135deg, #15803d, #16a34a); color: #fff; padding: 5px 14px; border-radius: 20px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; display: inline-block; }
+    .grid-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+    .card-box { background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px 14px; border-radius: 8px; font-size: 11.5px; }
+    .card-label { font-size: 9.5px; color: #64748b; font-weight: 700; text-transform: uppercase; margin-bottom: 3px; }
+    .card-val { font-size: 12.5px; font-weight: 800; color: #0f172a; }
+    
+    /* Financial Metrics Matrix */
+    .metrics-matrix { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 16px 0; }
+    .metric-card { padding: 12px 10px; border-radius: 8px; text-align: center; border: 1px solid #e2e8f0; }
+    .metric-title { font-size: 9px; font-weight: 800; text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.5px; }
+    .metric-value { font-size: 17px; font-weight: 900; }
+    
+    .bg-disbursed { background: #f8fafc; border-color: #cbd5e1; }
+    .bg-disbursed .metric-title { color: #475569; }
+    .bg-disbursed .metric-value { color: #0f172a; }
+    
+    .bg-paid { background: #eff6ff; border-color: #bfdbfe; }
+    .bg-paid .metric-title { color: #1d4ed8; }
+    .bg-paid .metric-value { color: #1e40af; }
+    
+    .bg-total-paid { background: #f0fdf4; border-color: #bbf7d0; }
+    .bg-total-paid .metric-title { color: #15803d; }
+    .bg-total-paid .metric-value { color: #166534; }
+    
+    .bg-outstanding { background: ${isClosed ? '#f0fdf4' : '#fffbeb'}; border-color: ${isClosed ? '#86efac' : '#fde68a'}; }
+    .bg-outstanding .metric-title { color: ${isClosed ? '#15803d' : '#b45309'}; }
+    .bg-outstanding .metric-value { color: ${isClosed ? '#15803d' : '#9a3412'}; }
+
+    .status-banner { padding: 8px 12px; border-radius: 6px; text-align: center; font-size: 11px; font-weight: 800; text-transform: uppercase; margin-bottom: 16px; }
+    .status-closed { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+    .status-active { background: #fef3c7; color: #92400e; border: 1px solid #fde68a; }
+
+    /* Transaction Ledger Table */
+    .ledger-table { width: 100%; border-collapse: collapse; margin: 14px 0; font-size: 10.5px; }
+    .ledger-table th { background: #f1f5f9; padding: 7px 10px; border: 1px solid #cbd5e1; text-align: left; font-size: 9.5px; text-transform: uppercase; color: #475569; font-weight: 800; }
+    .ledger-table td { padding: 7px 10px; border: 1px solid #e2e8f0; }
+    .ledger-table tr:nth-child(even) { background: #f8fafc; }
+    .current-row { background: #f0fdf4 !important; font-weight: bold; }
+
+    .footer-signs { display: flex; justify-content: space-between; margin-top: 28px; align-items: flex-end; }
+    .sig-line { border-bottom: 1.5px solid #0f172a; width: 140px; margin-bottom: 4px; }
+  </style>
+</head>
+<body>
+  <div class="receipt-container">
+    <!-- 1. Header Bar -->
+    <div class="header">
+      <div>
+        <h1 class="shop-title">👑 ${s.shop_name}</h1>
+        <div class="shop-sub">${s.address}<br/>${isMr ? 'संपर्क:' : 'Contact:'} ${s.mobile} • GSTIN: ${s.gstin}</div>
+      </div>
+      <div style="text-align: right;">
+        <span class="receipt-badge">${isMr ? 'अधिकृत सुवर्ण कर्ज भरणा पावती' : 'OFFICIAL PAYMENT & SETTLEMENT RECEIPT'}</span>
+        <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin-top: 5px; font-family: monospace;">${payment.receipt_number || 'REC-2026-0001'}</div>
+        <div style="font-size: 10px; color: #64748b;">${isMr ? 'भरणा दिनांक:' : 'Payment Date:'} <strong>${formatDate(payment.payment_date)}</strong></div>
+      </div>
+    </div>
+
+    <!-- 2. Borrower & Loan Collateral Details -->
+    <div class="grid-two">
+      <div class="card-box">
+        <div class="card-label">${isMr ? 'कर्जदार ग्राहकाचे नाव व तपशील' : 'Borrower Customer Details'}</div>
+        <div class="card-val">${custName}</div>
+        <div style="font-size: 10.5px; color: #475569; margin-top: 2px;">📞 ${custMobile}</div>
+        <div style="font-size: 9.5px; color: #64748b; margin-top: 2px;">📍 ${custAddress}</div>
+      </div>
+
+      <div class="card-box">
+        <div class="card-label">${isMr ? 'सुवर्ण कर्ज खाते व तारण तपशील' : 'Gold Loan Account & Collateral'}</div>
+        <div class="card-val">${isMr ? 'कर्ज खाते क्रमांक:' : 'Loan Account #:'} <span style="color: #b45309;">${loanNo}</span></div>
+        <div style="font-size: 10.5px; color: #475569; margin-top: 2px;">🟡 ${ornamentName} • ${purity}</div>
+        <div style="font-size: 9.5px; color: #64748b; margin-top: 2px;">⚖️ ${isMr ? 'निव्वळ वजन:' : 'Net Gold Weight:'} <strong>${formatWeight(netWeight)}</strong> • ${isMr ? 'मंजूर दिनांक:' : 'Loan Date:'} ${formatDate(loanDate)}</div>
+      </div>
+    </div>
+
+    <!-- 3. Key Financial Summary Matrix (Disbursed, Paid, Total Paid Till Date, Remaining Outstanding) -->
+    <div class="metrics-matrix">
+      <div class="metric-card bg-disbursed">
+        <div class="metric-title">${isMr ? 'मंजूर कर्ज रक्कम' : 'Disbursed Amount'}</div>
+        <div class="metric-value">${formatCurrency(disbursedAmount)}</div>
+      </div>
+
+      <div class="metric-card bg-paid">
+        <div class="metric-title">${isMr ? 'चालू भरणा रक्कम' : 'Amount Paid'}</div>
+        <div class="metric-value">${formatCurrency(paymentAmount)}</div>
+      </div>
+
+      <div class="metric-card bg-total-paid">
+        <div class="metric-title">${isMr ? 'आजपर्यंत एकूण जमा' : 'Total Paid Till Date'}</div>
+        <div class="metric-value">${formatCurrency(totalPaidTillDate)}</div>
+      </div>
+
+      <div class="metric-card bg-outstanding">
+        <div class="metric-title">${isMr ? 'उर्वरित येणेबाकी रक्कम' : 'Remaining Outstanding'}</div>
+        <div class="metric-value">${formatCurrency(remainingOutstanding)}</div>
+      </div>
+    </div>
+
+    <!-- 4. Status Indicator Banner -->
+    <div class="status-banner ${isClosed ? 'status-closed' : 'status-active'}">
+      ${isClosed
+        ? (isMr ? '✅ कर्ज खाते पूर्ण भरणा होऊन यशस्वीरित्या बंद झाले (PAID IN FULL & SETTLED)' : '✅ LOAN ACCOUNT FULLY SETTLED & CLOSED (ZERO BALANCE DUE)')
+        : (isMr ? `🟡 कर्ज खाते सक्रिय • उर्वरित येणेबाकी: ${formatCurrency(remainingOutstanding)}` : `🟡 ACTIVE LOAN • REMAINING BALANCE DUE: ${formatCurrency(remainingOutstanding)}`)
+      }
+    </div>
+
+    <!-- 5. Payment Transaction Details -->
+    <div class="card-box" style="margin-bottom: 14px;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+          <span style="font-size: 10px; font-weight: 800; color: #475569; text-transform: uppercase;">
+            ${isMr ? 'भरणा प्रकार:' : 'Payment Purpose:'} <strong>${payment.payment_type}</strong>
+          </span>
+          <span style="margin: 0 8px; color: #cbd5e1;">|</span>
+          <span style="font-size: 10px; font-weight: 800; color: #475569; text-transform: uppercase;">
+            ${isMr ? 'भरणा पद्धत:' : 'Payment Mode:'} <strong>${payment.payment_method}</strong>
+          </span>
+        </div>
+        ${payment.notes ? `
+          <div style="font-size: 9.5px; color: #64748b;">
+            ${isMr ? 'नोंद/व्हाउचर:' : 'Notes/Voucher:'} <strong>${payment.notes}</strong>
+          </div>
+        ` : ''}
+      </div>
+    </div>
+
+    <!-- 6. Cumulative Repayment History Ledger -->
+    <div style="font-size: 10px; font-weight: 800; color: #0f172a; text-transform: uppercase; margin-bottom: 4px;">
+      📜 ${isMr ? 'कर्ज परतफेड व्यवहार खातेवही (या पावतीपर्यंत)' : 'Repayment Transactions History (Up to this receipt)'}
+    </div>
+    <table class="ledger-table">
+      <thead>
+        <tr>
+          <th>${isMr ? 'पावती #' : 'Receipt #'}</th>
+          <th>${isMr ? 'दिनांक' : 'Date'}</th>
+          <th>${isMr ? 'भरणा प्रकार' : 'Payment Type'}</th>
+          <th>${isMr ? 'पद्धत' : 'Mode'}</th>
+          <th>${isMr ? 'जमा रक्कम' : 'Amount Paid'}</th>
+          <th>${isMr ? 'एकूण जमा रक्कम' : 'Cumulative Paid'}</th>
+          <th>${isMr ? 'उर्वरित येणेबाकी' : 'Balance Outstanding'}</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${(() => {
+          let runningTotal = 0;
+          return paymentsUpToThis.map((p) => {
+            const pAmt = Number(p.amount) || 0;
+            runningTotal += pAmt;
+            const pRemaining = isFullSettlement && p.id === payment.id ? 0 : Math.max(0, disbursedAmount - runningTotal);
+            const isCurrent = p.id === payment.id || p.receipt_number === payment.receipt_number;
+            return `
+              <tr class="${isCurrent ? 'current-row' : ''}">
+                <td style="font-family: monospace; font-weight: 700;">${p.receipt_number || 'REC-0001'}</td>
+                <td>${formatDate(p.payment_date)}</td>
+                <td><strong>${p.payment_type}</strong></td>
+                <td>${p.payment_method}</td>
+                <td style="font-weight: 800; color: #16a34a;">${formatCurrency(pAmt)}</td>
+                <td style="font-weight: 800; color: #1e40af;">${formatCurrency(runningTotal)}</td>
+                <td style="font-weight: 800; color: ${pRemaining <= 0 ? '#16a34a' : '#b45309'};">
+                  ${pRemaining <= 0 ? (isMr ? '₹० (पूर्ण भरणा ✅)' : '₹0 (Settled ✅)') : formatCurrency(pRemaining)}
+                </td>
+              </tr>
+            `;
+          }).join('');
+        })()}
+      </tbody>
+    </table>
+
+    <!-- 7. Security Stamp & Signatures -->
+    <div class="footer-signs">
+      <div>
+        <div class="sig-line"></div>
+        <div style="font-size: 10.5px; font-weight: 800;">${isMr ? 'कर्जदाराची स्वाक्षरी' : 'Borrower Signature'}</div>
+        <div style="font-size: 9px; color: #64748b;">${custName}</div>
+      </div>
+
+      <div style="text-align: center;">
+        <div style="font-size: 8px; font-weight: 900; color: #166534; border: 1.5px dashed #16a34a; padding: 4px 10px; border-radius: 6px; background: #f0fdf4;">
+          SUVARNA LOAN ERP<br/>
+          ${isMr ? 'डिजिटल पडताळणी पूर्ण ✅' : 'DIGITALLY AUDITED & VERIFIED ✅'}
+        </div>
+      </div>
+
+      <div style="text-align: right;">
+        <div class="sig-line" style="margin-left: auto;"></div>
+        <div style="font-size: 10.5px; font-weight: 800;">${isMr ? 'अधिकृत कॅशियर स्वाक्षरी' : 'Authorized Cashier / Stamp'}</div>
+        <div style="font-size: 9px; color: #64748b;">${s.owner_name}</div>
       </div>
     </div>
   </div>
@@ -350,631 +1194,28 @@ export function printHTMLDocument(htmlContent: string) {
 }
 
 /**
- * Generates Enterprise Banking-Grade Loan Account Statement & Audit PDF Document HTML
+ * Convenience helper to print single payment receipt
  */
-export function generateEnterpriseLoanStatementHTML(opts: DocumentOptions): string {
-  const { loan, shop, closedBy = 'System Cashier', closureDate = new Date().toISOString().split('T')[0] } = opts;
-  const s = shop || DEFAULT_SHOP_INFO;
-  const customerName = loan.customer?.full_name || 'Borrower Customer';
-  const docId = `SL-STMT-${loan.loan_number}-${new Date().getFullYear()}`;
-  const nowStr = `${formatDate(new Date().toISOString())} • ${new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`;
-  const secHash = `SEC-SHA256-${Math.random().toString(36).substring(2, 10).toUpperCase()}`;
-
-  const financials = calculateLoanFinancials(
-    loan.loan_amount,
-    loan.interest_rate,
-    loan.loan_date,
-    loan.due_date,
-    loan.payments,
-    loan.repayment_model || 'Bullet Repayment',
-    loan.tenure_months || 12
-  );
-
-  const payments = Array.isArray(loan.payments) ? loan.payments : [];
-
-  // Generate monthly interest breakdown rows
-  const tenure = Math.min(12, loan.tenure_months || 12);
-  const monthlyRate = loan.interest_rate || 1.5;
-  const monthlyInterestAmt = Math.round(loan.loan_amount * (monthlyRate / 100));
-
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8"/>
-  <title>Enterprise Loan Statement - ${loan.loan_number}</title>
-  <style>
-    @page { size: A4 portrait; margin: 12mm; }
-    * { box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-      color: #0f172a;
-      background: #ffffff;
-      margin: 0;
-      padding: 0;
-      font-size: 11px;
-      line-height: 1.4;
-    }
-    .page-container {
-      position: relative;
-      padding: 24px;
-      border: 1px solid #cbd5e1;
-      border-radius: 12px;
-      background: #ffffff;
-      min-height: 1000px;
-    }
-    /* Subtle Background Watermark */
-    .watermark {
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%) rotate(-35deg);
-      font-size: 48px;
-      font-weight: 900;
-      color: rgba(226, 232, 240, 0.4);
-      white-space: nowrap;
-      pointer-events: none;
-      user-select: none;
-      z-index: 0;
-      letter-spacing: 4px;
-      text-transform: uppercase;
-    }
-    .content-wrap { position: relative; z-index: 1; }
-
-    /* Banking Header Bar */
-    .bank-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      border-bottom: 2.5px solid #b45309;
-      padding-bottom: 14px;
-      margin-bottom: 16px;
-    }
-    .brand-title {
-      font-size: 22px;
-      font-weight: 900;
-      color: #78350f;
-      letter-spacing: -0.5px;
-      display: flex;
-      items-center;
-      gap: 6px;
-      margin: 0;
-    }
-    .shop-meta {
-      font-size: 10px;
-      color: #475569;
-      margin-top: 4px;
-      line-height: 1.35;
-    }
-    .doc-badge-box {
-      text-align: right;
-    }
-    .doc-title-badge {
-      display: inline-block;
-      background: #78350f;
-      color: #ffffff;
-      padding: 5px 14px;
-      border-radius: 6px;
-      font-size: 11px;
-      font-weight: 800;
-      letter-spacing: 0.5px;
-      text-transform: uppercase;
-    }
-    .doc-meta {
-      font-size: 9.5px;
-      color: #64748b;
-      margin-top: 6px;
-      font-family: monospace;
-    }
-
-    /* Grid Sections */
-    .section-header {
-      font-size: 11px;
-      font-weight: 800;
-      color: #78350f;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      border-bottom: 1.5px solid #fef3c7;
-      padding-bottom: 4px;
-      margin-top: 16px;
-      margin-bottom: 10px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
-    .grid-4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; }
-
-    .info-card {
-      background: #f8fafc;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      padding: 8px 12px;
-    }
-    .card-label { font-size: 9px; font-weight: 700; color: #64748b; text-transform: uppercase; }
-    .card-value { font-size: 12px; font-weight: 800; color: #0f172a; margin-top: 2px; }
-
-    /* KPI Financial Highlight Cards */
-    .kpi-card {
-      padding: 10px 12px;
-      border-radius: 8px;
-      border: 1px solid #cbd5e1;
-      background: #ffffff;
-    }
-    .kpi-label { font-size: 9.5px; font-weight: 700; color: #64748b; text-transform: uppercase; }
-    .kpi-val { font-size: 16px; font-weight: 900; margin-top: 2px; }
-
-    /* Tables */
-    .data-table {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 6px;
-      font-size: 10px;
-    }
-    .data-table th, .data-table td {
-      border: 1fr solid #e2e8f0;
-      padding: 6px 10px;
-      text-align: left;
-    }
-    .data-table th {
-      background: #f1f5f9;
-      color: #334155;
-      font-weight: 800;
-      text-transform: uppercase;
-      font-size: 9px;
-    }
-    .data-table tr:nth-child(even) { background: #f8fafc; }
-    .data-table tr.total-row { background: #fef3c7; font-weight: 800; }
-
-    /* Security QR & Signatures */
-    .bottom-section {
-      margin-top: 20px;
-      padding-top: 14px;
-      border-top: 1.5px solid #e2e8f0;
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-end;
-    }
-    .stamp-box {
-      border: 2px dashed #16a34a;
-      color: #15803d;
-      padding: 8px 14px;
-      border-radius: 12px;
-      font-size: 10.5px;
-      font-weight: 900;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      display: inline-block;
-      transform: rotate(-3deg);
-      background: #f0fdf4;
-    }
-    .sig-box { text-align: center; width: 150px; }
-    .sig-line { border-bottom: 1.5px solid #0f172a; margin-bottom: 4px; height: 35px; }
-
-    .footer-bar {
-      margin-top: 16px;
-      padding-top: 8px;
-      border-top: 1px solid #f1f5f9;
-      font-size: 8.5px;
-      color: #94a3b8;
-      display: flex;
-      justify-content: space-between;
-    }
-  </style>
-</head>
-<body>
-  <div class="page-container">
-    <div class="watermark">SUVARNA LOAN ERP • OFFICIAL BANKING RECORD</div>
-
-    <div class="content-wrap">
-      <!-- 1. Header & Bank Metadata -->
-      <div class="bank-header">
-        <div>
-          <h1 class="brand-title">👑 ${s.shop_name}</h1>
-          <div class="shop-meta">
-            ${s.address}<br/>
-            <strong>Contact:</strong> ${s.mobile} • <strong>Email:</strong> ${s.email}<br/>
-            <strong>GSTIN:</strong> ${s.gstin} • <strong>NBFC / Gold Lending License #:</strong> ${s.license_number}
-          </div>
-        </div>
-
-        <div class="doc-badge-box">
-          <span class="doc-title-badge">LOAN ACCOUNT STATEMENT</span>
-          <div class="doc-meta">
-            Doc ID: <strong>${docId}</strong><br/>
-            Generated: <strong>${nowStr}</strong><br/>
-            Audit Hash: <strong>${secHash}</strong>
-          </div>
-        </div>
-      </div>
-
-      <!-- 2. Borrower CRM Profile & KYC Section -->
-      <div class="section-header">
-        <span>👤 Borrower Profile & Masked KYC Audit Summary</span>
-        <span style="color: #15803d; font-size: 9.5px; font-weight: 800;">KYC VERIFIED ✅</span>
-      </div>
-
-      <div class="grid-2">
-        <div class="info-card">
-          <div style="display: flex; gap: 10px; items-center;">
-            <div style="width: 48px; height: 48px; border-radius: 50%; background: #0f172a; color: #f59e0b; display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 900; shrink-0; overflow: hidden;">
-              ${loan.customer?.photo_url ? `<img src="${loan.customer.photo_url}" style="width:100%;height:100%;object-fit:cover;"/>` : (customerName[0] || 'C')}
-            </div>
-            <div>
-              <div class="card-label">Borrower Full Name</div>
-              <div class="card-value">${customerName}</div>
-              <div style="font-size: 9.5px; color: #64748b; margin-top: 2px;">
-                Customer ID: <strong>${loan.customer?.id || 'CUST-8841'}</strong> • Gender: <strong>Male/Female</strong>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="info-card">
-          <div class="card-label">Contact & Residential Address</div>
-          <div style="font-size: 10.5px; font-weight: 700; color: #1e293b; margin-top: 2px;">
-            📞 Mobile: <strong>${loan.customer?.mobile_number || 'N/A'}</strong> (Alt: ${loan.customer?.alternate_mobile || 'N/A'})
-          </div>
-          <div style="font-size: 9.5px; color: #475569; margin-top: 2px;">
-            🏠 ${loan.customer?.address || 'Gold Bazaar Main Road'}, ${loan.customer?.city || 'City'}, ${loan.customer?.state || 'State'} - ${loan.customer?.pincode || '400002'}
-          </div>
-        </div>
-      </div>
-
-      <div class="grid-4" style="margin-top: 8px;">
-        <div class="info-card">
-          <div class="card-label">Aadhaar (Masked)</div>
-          <div class="card-value" style="font-family: monospace;">XXXX-XXXX-${loan.customer?.aadhaar_number?.slice(-4) || '8841'}</div>
-        </div>
-        <div class="info-card">
-          <div class="card-label">PAN Number (Masked)</div>
-          <div class="card-value" style="font-family: monospace;">XXXXX${loan.customer?.pan_number?.slice(-4) || '8841K'}</div>
-        </div>
-        <div class="info-card">
-          <div class="card-label">Nominee Relation</div>
-          <div class="card-value">${loan.customer?.nominee_name || 'Family Nominee'} (${loan.customer?.nominee_relation || 'Spouse'})</div>
-        </div>
-        <div class="info-card">
-          <div class="card-label">Credit Rating Score</div>
-          <div class="card-value" style="color: #15803d;">780 / 900 (Excellent)</div>
-        </div>
-      </div>
-
-      <!-- 3. Loan Terms & Account Financial Summary -->
-      <div class="section-header">
-        <span>🏦 Loan Sanction Terms & Financial Ledger Summary</span>
-        <span style="color: #78350f; font-size: 9.5px;">Contract #: <strong>${loan.loan_number}</strong></span>
-      </div>
-
-      <div class="grid-4">
-        <div class="kpi-card" style="border-left: 4px solid #0f172a;">
-          <div class="kpi-label">Sanctioned Principal</div>
-          <div class="kpi-val" style="color: #0f172a;">${formatCurrency(loan.loan_amount)}</div>
-          <div style="font-size: 8.5px; color: #64748b; margin-top: 2px;">Rate: ${loan.interest_rate}%/mo (${loan.interest_rate * 12}% p.a.)</div>
-        </div>
-
-        <div class="kpi-card" style="border-left: 4px solid #16a34a;">
-          <div class="kpi-label">Total Interest Paid</div>
-          <div class="kpi-val" style="color: #16a34a;">${formatCurrency(financials.totalInterestPaid)}</div>
-          <div style="font-size: 8.5px; color: #64748b; margin-top: 2px;">Principal Paid: ${formatCurrency(financials.totalPrincipalPaid)}</div>
-        </div>
-
-        <div class="kpi-card" style="border-left: 4px solid #d97706;">
-          <div class="kpi-label">Pending Accrued Interest</div>
-          <div class="kpi-val" style="color: #d97706;">${formatCurrency(financials.netAccruedInterest)}</div>
-          <div style="font-size: 8.5px; color: #64748b; margin-top: 2px;">Elapsed: ${financials.elapsedMonths} months (${financials.elapsedDays}d)</div>
-        </div>
-
-        <div class="kpi-card" style="border-left: 4px solid #dc2626;">
-          <div class="kpi-label">Total Balance Due</div>
-          <div class="kpi-val" style="color: #dc2626;">${formatCurrency(financials.totalBalanceDue)}</div>
-          <div style="font-size: 8.5px; color: #64748b; margin-top: 2px;">Due Date: ${formatDate(loan.due_date)}</div>
-        </div>
-      </div>
-
-      <div class="grid-3" style="margin-top: 8px;">
-        <div class="info-card">
-          <div class="card-label">Loan Disbursed Date</div>
-          <div class="card-value">${formatDate(loan.loan_date)}</div>
-        </div>
-        <div class="info-card">
-          <div class="card-label">Repayment Scheme / Model</div>
-          <div class="card-value" style="color: #78350f;">${loan.repayment_model || 'Bullet Repayment Gold Loan'}</div>
-        </div>
-        <div class="info-card">
-          <div class="card-label">Account Status</div>
-          <div class="card-value" style="color: ${loan.status === 'Active' ? '#16a34a' : loan.status === 'Overdue' ? '#dc2626' : '#0284c7'};">
-            ${loan.status.toUpperCase()} ${financials.isOverdue ? `(Overdue ${financials.overdueDays}d)` : ''}
-          </div>
-        </div>
-      </div>
-
-      <!-- 4. Pledged Gold Ornament Asset Breakdown Table -->
-      <div class="section-header">
-        <span>🟡 Pledged Gold Asset Vault Breakdown</span>
-        <span style="color: #64748b; font-size: 9.5px;">Vault Locker: <strong>LOCKER-A-01</strong></span>
-      </div>
-
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Ornament Item</th>
-            <th>Category / Metal</th>
-            <th>Purity Karat</th>
-            <th>Gross Wt (g)</th>
-            <th>Stones / Deductions (g)</th>
-            <th>Net Pure Wt (g)</th>
-            <th>Est. Market Value</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td>1</td>
-            <td><strong>${loan.gold_item?.ornament_type || 'Gold Ornament Item'}</strong></td>
-            <td>${loan.gold_item?.metal_type === 'Silver' ? '⚪ Sterling Silver' : '🟡 Gold Ornaments'}</td>
-            <td><strong>${loan.gold_item?.purity || '22K (91.6%)'}</strong></td>
-            <td>${formatWeight(loan.gold_item?.gross_weight || 0)}</td>
-            <td>${formatWeight(loan.gold_item?.stone_weight || 0)}</td>
-            <td><strong>${formatWeight(loan.gold_item?.net_weight || 0)}</strong></td>
-            <td><strong>${formatCurrency((loan.gold_item?.net_weight || 0) * 7200)}</strong></td>
-          </tr>
-          <tr class="total-row">
-            <td colspan="4">TOTAL PLEDGED ASSETS IN VAULT:</td>
-            <td>${formatWeight(loan.gold_item?.gross_weight || 0)}</td>
-            <td>${formatWeight(loan.gold_item?.stone_weight || 0)}</td>
-            <td>${formatWeight(loan.gold_item?.net_weight || 0)}</td>
-            <td>${formatCurrency((loan.gold_item?.net_weight || 0) * 7200)}</td>
-          </tr>
-        </tbody>
-      </table>
-
-      <!-- 5. Complete Repayment Transaction History Ledger -->
-      <div class="section-header">
-        <span>📜 Complete Repayment Transaction History Ledger</span>
-        <span style="color: #64748b; font-size: 9.5px;">Total Transactions: <strong>${payments.length}</strong></span>
-      </div>
-
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th>Receipt #</th>
-            <th>Date & Time</th>
-            <th>Payment Purpose</th>
-            <th>Payment Method</th>
-            <th>Voucher / Ref #</th>
-            <th>Amount Received</th>
-            <th>Status</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${payments.length === 0 ? `
-            <tr>
-              <td colspan="7" style="text-align: center; color: #94a3b8; padding: 14px;">
-                No repayment transactions recorded yet for this loan account.
-              </td>
-            </tr>
-          ` : payments.map((p, idx) => `
-            <tr>
-              <td style="font-family: monospace; font-weight: 700;">REC-2026-${(idx + 1).toString().padStart(4, '0')}</td>
-              <td>${formatDate(p.payment_date)}</td>
-              <td><strong>${p.payment_type}</strong></td>
-              <td>${p.payment_method}</td>
-              <td style="font-family: monospace; font-size: 9px;">${p.notes || 'Counter Cashier'}</td>
-              <td style="color: #16a34a; font-weight: 800;">${formatCurrency(p.amount)}</td>
-              <td><span style="color: #16a34a; font-weight: 800;">SUCCESS ✅</span></td>
-            </tr>
-          `).join('')}
-        </tbody>
-      </table>
-
-      <!-- 6. Security QR Verification, Barcode & Signatures -->
-      <div class="bottom-section">
-        <div>
-          <div style="display: flex; items-center; gap: 12px;">
-            <!-- QR Code Graphic Placeholder -->
-            <div style="width: 64px; height: 64px; border: 1.5px solid #0f172a; border-radius: 6px; padding: 4px; background: #fff; display: flex; flex-direction: column; items-center; justify-content: center; text-align: center;">
-              <div style="font-size: 8px; font-weight: 900; color: #0f172a; line-height: 1;">SCAN QR</div>
-              <div style="font-size: 14px; margin-top: 2px;">🏁📱</div>
-              <div style="font-size: 7px; color: #64748b; font-family: monospace;">VERIFY</div>
-            </div>
-
-            <div>
-              <div class="stamp-box">
-                SUVARNA LOAN ERP<br/>
-                AUDITED & VERIFIED ✅
-              </div>
-              <div style="font-size: 8.5px; color: #64748b; margin-top: 4px; font-family: monospace;">
-                Barcode: |||| ||| |||| | ||| |||| | ||<br/>
-                Verification URL: https://suvarnaloan.com/verify?id=${loan.loan_number}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div style="display: flex; gap: 24px;">
-          <div class="sig-box">
-            <div class="sig-line"></div>
-            <div style="font-size: 10px; font-weight: 800; color: #0f172a;">Borrower Signature</div>
-            <div style="font-size: 8.5px; color: #64748b;">${customerName}</div>
-          </div>
-
-          <div class="sig-box">
-            <div class="sig-line"></div>
-            <div style="font-size: 10px; font-weight: 800; color: #0f172a;">Authorized Cashier / Stamp</div>
-            <div style="font-size: 8.5px; color: #64748b;">${s.owner_name} (${s.shop_name})</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- 7. Footer Disclaimer & Page Number -->
-      <div class="footer-bar">
-        <div>
-          This document is an enterprise digitally generated Loan Statement issued by ${s.shop_name}. Valid without physical ink signature.
-        </div>
-        <div>
-          Confidential • Customer Support: ${s.mobile} • Page 1 of 1
-        </div>
-      </div>
-    </div>
-  </div>
-</body>
-</html>
-  `;
+export function printSinglePaymentReceiptPDF(payment: Payment, shop?: Shop | null, language?: 'en' | 'mr') {
+  const html = generateSinglePaymentReceiptHTML(payment, shop, language);
+  printHTMLDocument(html);
 }
 
 /**
- * Generates official GST & Banking Grade Single Payment Receipt HTML
+ * Backward compatibility alias for single payment receipt HTML
  */
-export function generateSinglePaymentReceiptHTML(payment: Payment, shop?: Shop | null): string {
-  const s = shop || DEFAULT_SHOP_INFO;
-  const custName = payment.loan?.customer?.full_name || 'Borrower Customer';
-  const custMobile = payment.loan?.customer?.mobile_number || 'N/A';
-  const custAadhaar = payment.loan?.customer?.aadhaar_number || 'N/A';
-  const loanNo = payment.loan?.loan_number || 'GL-2026-001';
-  const ornamentName = payment.loan?.gold_item?.ornament_type || 'Gold Item Collateral';
-  const netWeight = payment.loan?.gold_item?.net_weight || 0;
-
-  return `
-<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8"/>
-  <title>Payment Receipt - ${payment.receipt_number || 'REC-2026-0000'}</title>
-  <style>
-    @page { size: A4 portrait; margin: 15mm; }
-    body { font-family: 'Segoe UI', Arial, sans-serif; color: #0f172a; margin: 0; padding: 20px; background: #fff; line-height: 1.5; }
-    .receipt-container { border: 2px solid #cbd5e1; padding: 25px; border-radius: 12px; max-width: 800px; margin: 0 auto; background: #ffffff; }
-    .header { border-bottom: 2px solid #f59e0b; padding-bottom: 15px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: flex-start; }
-    .shop-title { font-size: 22px; font-weight: 900; color: #78350f; margin: 0; text-transform: uppercase; }
-    .shop-sub { font-size: 11px; color: #64748b; margin-top: 3px; }
-    .receipt-badge { background: linear-gradient(135deg, #15803d, #16a34a); color: #fff; padding: 6px 16px; border-radius: 20px; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.5px; display: inline-block; }
-    .grid-two { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 20px; }
-    .card-box { background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px 16px; border-radius: 10px; font-size: 12px; }
-    .card-label { font-size: 10px; color: #64748b; font-weight: 700; text-transform: uppercase; margin-bottom: 4px; }
-    .card-val { font-size: 13px; font-weight: 800; color: #0f172a; }
-    .amount-banner { background: #f0fdf4; border: 2px solid #86efac; border-radius: 12px; padding: 16px; text-align: center; margin: 20px 0; }
-    .amount-num { font-size: 28px; font-weight: 900; color: #15803d; }
-    .table-details { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
-    .table-details th { background: #f1f5f9; padding: 8px 12px; border: 1px solid #e2e8f0; font-size: 10px; text-transform: uppercase; text-align: left; }
-    .table-details td { padding: 10px 12px; border: 1px solid #e2e8f0; font-weight: 600; }
-    .footer-seal { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 35px; pt: 15px; border-top: 1px solid #cbd5e1; }
-    .verified-stamp { border: 2px solid #16a34a; color: #16a34a; padding: 6px 14px; border-radius: 30px; font-weight: 900; text-transform: uppercase; font-size: 11px; display: inline-block; transform: rotate(-3deg); }
-    .sig-line { width: 160px; border-bottom: 1.5px solid #0f172a; margin-bottom: 4px; margin-left: auto; }
-  </style>
-</head>
-<body>
-  <div class="receipt-container">
-    <div class="header">
-      <div>
-        <h1 class="shop-title">👑 ${s.shop_name}</h1>
-        <div class="shop-sub">${s.address || 'Enterprise Gold Loan Office'} • GSTIN: ${s.gstin || '27AAAAA0000A1Z5'}</div>
-        <div class="shop-sub">Contact: ${s.mobile || '+91 98765 43210'} • License #: ${s.license_number || 'GL-2026-REG'}</div>
-      </div>
-      <div style="text-align: right;">
-        <span class="receipt-badge">OFFICIAL REPAYMENT RECEIPT</span>
-        <div style="font-size: 12px; font-weight: 800; color: #b45309; margin-top: 8px;">Receipt #: ${payment.receipt_number || 'REC-2026-0001'}</div>
-        <div style="font-size: 11px; color: #64748b;">Date: ${formatDate(payment.payment_date)}</div>
-      </div>
-    </div>
-
-    <div class="grid-two">
-      <div class="card-box">
-        <div class="card-label">Borrower Customer Profile</div>
-        <div class="card-val">${custName}</div>
-        <div style="font-size: 11px; color: #475569; margin-top: 2px;">Mobile: ${custMobile}</div>
-        <div style="font-size: 11px; color: #475569;">Aadhaar #: ${custAadhaar}</div>
-      </div>
-
-      <div class="card-box">
-        <div class="card-label">Pledged Gold Loan Contract</div>
-        <div class="card-val">Loan Contract #: ${loanNo}</div>
-        <div style="font-size: 11px; color: #475569; margin-top: 2px;">Collateral: ${ornamentName}</div>
-        <div style="font-size: 11px; color: #475569;">Net Gold Weight: ${netWeight} grams</div>
-      </div>
-    </div>
-
-    <div class="amount-banner">
-      <div style="font-size: 11px; font-weight: 800; color: #166534; text-transform: uppercase;">Total Amount Paid & Received</div>
-      <div class="amount-num">${formatCurrency(payment.amount)}</div>
-      <div style="font-size: 11px; color: #15803d; font-weight: 700; margin-top: 2px;">Payment Mode: ${payment.payment_method} • Transaction Status: SUCCESS (PAID)</div>
-    </div>
-
-    <table class="table-details">
-      <thead>
-        <tr>
-          <th>Transaction Field</th>
-          <th>Details & Values</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>Repayment Category / Type</td>
-          <td><strong>${payment.payment_type}</strong></td>
-        </tr>
-        <tr>
-          <td>Principal Portion Credit</td>
-          <td>${formatCurrency(payment.principal_portion || 0)}</td>
-        </tr>
-        <tr>
-          <td>Interest Portion Credit</td>
-          <td>${formatCurrency(payment.interest_portion || payment.amount)}</td>
-        </tr>
-        <tr>
-          <td>Payment Method & Reference</td>
-          <td>${payment.payment_method} ${payment.notes ? `(${payment.notes})` : ''}</td>
-        </tr>
-      </tbody>
-    </table>
-
-    <div class="footer-seal">
-      <div>
-        <div class="verified-stamp">SUVARNA LOAN ERP • OFFICIALLY PAID ✅</div>
-        <div style="font-size: 9px; color: #94a3b8; margin-top: 8px;">Digitally generated payment voucher. Verified under RBI Multi-Tenant Gold Finance ERP.</div>
-      </div>
-
-      <div style="text-align: right;">
-        <div class="sig-line"></div>
-        <div style="font-size: 11px; font-weight: 800; color: #0f172a;">Authorized Cashier / Stamp</div>
-        <div style="font-size: 10px; color: #64748b;">${s.owner_name} (${s.shop_name})</div>
-      </div>
-    </div>
-  </div>
-</body>
-</html>
-  `;
-}
+export const generateRepaymentReceiptHTML = generateSinglePaymentReceiptHTML;
 
 /**
- * Triggers Browser Print to PDF dialog for a single repayment transaction receipt
- */
-export function printSinglePaymentReceiptPDF(payment: Payment, shop?: Shop | null) {
-  if (typeof window === 'undefined') return;
-  const htmlContent = generateSinglePaymentReceiptHTML(payment, shop);
-  const printWindow = window.open('', '_blank', 'width=900,height=750');
-  if (printWindow) {
-    printWindow.document.open();
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-    printWindow.focus();
-    setTimeout(() => {
-      printWindow.print();
-    }, 400);
-  }
-}
-
-/**
- * Triggers direct browser file download of generated document
+ * Triggers download of generated HTML file
  */
 export function downloadHTMLDocument(htmlContent: string, filename: string) {
   if (typeof window === 'undefined') return;
-  const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+  const blob = new Blob([htmlContent], { type: 'text/html;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename.endsWith('.html') ? filename : `${filename}.html`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

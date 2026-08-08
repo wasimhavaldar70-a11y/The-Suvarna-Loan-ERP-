@@ -152,6 +152,31 @@ export interface Valuation {
   created_at: string;
 }
 
+export interface LoanDisbursement {
+  id: string;
+  loan_id: string;
+  shop_id: string;
+  disbursement_number: number;
+  amount: number;
+  interest_rate: number;
+  disbursement_date: string;
+  interest_start_date: string;
+  due_date: string;
+  tenure_months?: number;
+  status: 'Active' | 'Settled';
+  principal_outstanding?: number;
+  total_interest_paid?: number;
+  accrued_interest?: number;
+  total_balance_due?: number;
+  payment_method?: 'Cash' | 'UPI' | 'Bank Transfer' | 'Cheque';
+  notes?: string;
+  disbursed_by?: string;
+  created_at: string;
+  updated_at?: string;
+  deleted_at?: string;
+  payments?: Payment[];
+}
+
 export interface Loan {
   id: string;
   shop_id: string;
@@ -177,6 +202,11 @@ export interface Loan {
   deleted_at?: string;
   version?: number;
 
+  // Multi-Disbursement Tranches
+  disbursements?: LoanDisbursement[];
+  total_disbursed?: number;
+  total_principal_outstanding?: number;
+
   // Joined relations for UI
   customer?: Customer;
   gold_item?: GoldItem;
@@ -199,6 +229,8 @@ export interface Payment {
   id: string;
   shop_id?: string;
   loan_id: string;
+  disbursement_id?: string;
+  disbursement_number?: number;
   payment_type: PaymentType;
   amount: number;
   principal_portion?: number;
@@ -214,6 +246,7 @@ export interface Payment {
   version?: number;
   // Joined for display
   loan?: Loan;
+  disbursement?: LoanDisbursement;
 }
 
 export interface Notification {

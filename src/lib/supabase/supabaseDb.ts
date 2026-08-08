@@ -15,13 +15,14 @@ import {
   Valuation, 
   Loan, 
   LoanStatus,
+  LoanDisbursement,
   Invoice, 
   Payment, 
   Notification, 
   AuditLog, 
   DashboardMetrics 
 } from '../../types';
-import { calculateGoldValuation, calculateLoanFinancials } from '../goldValuationEngine';
+import { calculateGoldValuation, calculateLoanFinancials, calculateDisbursementFinancials } from '../goldValuationEngine';
 import { uploadToSupabaseStorage, deleteCustomerFiles, getSignedDocumentUrl, sanitizeStoragePathOrUpload, isBase64DataUrl } from '../storageHelper';
 import { generateNextCustomerId, generateNextGoldItemId, generateNextLoanId, generateNextPaymentId, formatHumanId } from '../idGenerator';
 import { logAuditEvent } from '../auditLog';
@@ -62,14 +63,14 @@ export const clearDbCache = (table?: string) => {
     }
   }
   // Invalidate dependent cached tables
-  if (table === 'loans' || table === 'payments' || table === 'gold_items' || table === 'customers') {
+  if (table === 'loans' || table === 'payments' || table === 'gold_items' || table === 'customers' || table === 'loan_disbursements') {
     for (const key of dbQueryCache.keys()) {
-      if (key.includes('dashboard_metrics')) {
+      if (key.includes('dashboard_metrics') || key.includes('disbursements')) {
         dbQueryCache.delete(key);
       }
     }
   }
-  if (table === 'customers' || table === 'gold_items' || table === 'payments') {
+  if (table === 'customers' || table === 'gold_items' || table === 'payments' || table === 'loan_disbursements') {
     for (const key of dbQueryCache.keys()) {
       if (key.includes('loans')) {
         dbQueryCache.delete(key);
@@ -89,6 +90,7 @@ export const broadcastDbUpdate = (type: string) => {
 const DEFAULT_CUSTOMERS: Customer[] = [];
 const DEFAULT_GOLD_ITEMS: GoldItem[] = [];
 const DEFAULT_LOANS: Loan[] = [];
+const DEFAULT_DISBURSEMENTS: LoanDisbursement[] = [];
 const DEFAULT_PAYMENTS: Payment[] = [];
 
 // Tenant-Scoped LocalStorage Helper (CRIT-01 Remediation)
@@ -115,8 +117,25 @@ function getStorageItem<T>(key: string, defaultVal: T, shopId?: string): T {
 
 function setStorageItem<T>(key: string, val: T, shopId?: string): void {
   if (typeof window === 'undefined') return;
-  const storageKey = getStorageKey(key, shopId);
-  localStorage.setItem(storageKey, JSON.stringify(val));
+  try {
+    const storageKey = getStorageKey(key, shopId);
+    localStorage.setItem(storageKey, JSON.stringify(val));
+  } catch (err: any) {
+    if (err && (err.name === 'QuotaExceededError' || err.code === 22 || err.number === -2147024882 || String(err).includes('quota'))) {
+      try {
+        // Clean up redundant cache keys
+        Object.keys(localStorage).forEach((k) => {
+          if (k.startsWith('sl_cache_') || k.includes('_reports') || k.includes('_logs')) {
+            localStorage.removeItem(k);
+          }
+        });
+        const storageKey = getStorageKey(key, shopId);
+        localStorage.setItem(storageKey, JSON.stringify(val));
+      } catch {
+        // Silently continue in memory if local storage is strictly full
+      }
+    }
+  }
 }
 
 const FALLBACK_CUSTOMERS = [
@@ -780,6 +799,271 @@ export const db = {
     return newItem;
   },
 
+  // ── Disbursements API ──────────────────────────────────────
+  async getDisbursements(shopId: string, loanId?: string): Promise<LoanDisbursement[]> {
+    const activeSession = getSessionUser();
+    const targetShopId = shopId || activeSession?.shop?.id || activeSession?.user?.shop_id || 'shared';
+
+    const cacheKey = `disbursements_${targetShopId}_${loanId || 'all'}`;
+    const cached = dbQueryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    let cloudDisbursements: LoanDisbursement[] = [];
+    if (isRealSupabase && supabase) {
+      try {
+        let q = supabase
+          .from('loan_disbursements')
+          .select('*')
+          .is('deleted_at', null)
+          .order('disbursement_number', { ascending: true });
+
+        if (shopId) {
+          q = q.eq('shop_id', shopId);
+        }
+        if (loanId) {
+          q = q.or(`loan_id.eq.${loanId},loan_id.eq.loan-${loanId}`);
+        }
+
+        const { data, error } = await q;
+        if (!error && data) {
+          cloudDisbursements = data as LoanDisbursement[];
+        }
+      } catch (err) {
+        console.warn('getDisbursements Supabase warning:', err);
+      }
+    }
+
+    // Load from tenant-scoped storage and shared storage
+    const scopedDisbs = getStorageItem<LoanDisbursement[]>('loan_disbursements', DEFAULT_DISBURSEMENTS, targetShopId);
+    const sharedDisbs = getStorageItem<LoanDisbursement[]>('loan_disbursements', DEFAULT_DISBURSEMENTS);
+    const allLocal = [...scopedDisbs, ...sharedDisbs];
+
+    const localDisbursements = allLocal.filter(d => {
+      if (d.deleted_at) return false;
+      if (shopId && d.shop_id && d.shop_id !== shopId) return false;
+      if (loanId) {
+        return d.loan_id === loanId || String(d.loan_id).toLowerCase() === String(loanId).toLowerCase();
+      }
+      return true;
+    });
+
+    const mergedMap = new Map<string, LoanDisbursement>();
+    cloudDisbursements.forEach(d => mergedMap.set(d.id, d));
+    localDisbursements.forEach(d => mergedMap.set(d.id, d));
+
+    let result = Array.from(mergedMap.values());
+
+    // Auto-synthesize Disbursement #1 if missing for a specific loan
+    if (loanId) {
+      const allLoans = [
+        ...getStorageItem<Loan[]>('loans', DEFAULT_LOANS, targetShopId),
+        ...getStorageItem<Loan[]>('loans', DEFAULT_LOANS),
+      ];
+      const targetLoan = allLoans.find(l => (l.id === loanId || l.loan_number === loanId));
+      if (targetLoan && !result.some(d => d.disbursement_number === 1)) {
+        const initialDisb: LoanDisbursement = {
+          id: `disb-${targetLoan.id}-1`,
+          loan_id: targetLoan.id,
+          shop_id: targetLoan.shop_id || targetShopId,
+          disbursement_number: 1,
+          amount: Number(targetLoan.loan_amount) || 0,
+          interest_rate: targetLoan.interest_rate || 1.5,
+          disbursement_date: targetLoan.loan_date || new Date().toISOString().split('T')[0],
+          interest_start_date: targetLoan.loan_date || new Date().toISOString().split('T')[0],
+          due_date: targetLoan.due_date || new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
+          tenure_months: targetLoan.tenure_months || 12,
+          status: targetLoan.status === 'Closed' ? 'Settled' : 'Active',
+          principal_outstanding: targetLoan.status === 'Closed' ? 0 : Number(targetLoan.loan_amount),
+          total_interest_paid: 0,
+          payment_method: 'Cash',
+          notes: 'Initial Gold Pledge Disbursement #1',
+          created_at: targetLoan.created_at || new Date().toISOString(),
+        };
+        result.unshift(initialDisb);
+      }
+    }
+
+    result.sort((a, b) => (a.disbursement_number || 1) - (b.disbursement_number || 1));
+
+    // Merge into existing storage rather than overwriting (avoids wiping disbursements for other loans)
+    if (loanId) {
+      const existingScoped = getStorageItem<LoanDisbursement[]>('loan_disbursements', DEFAULT_DISBURSEMENTS, targetShopId);
+      const existingShared = getStorageItem<LoanDisbursement[]>('loan_disbursements', DEFAULT_DISBURSEMENTS);
+      const mergeInto = (existing: LoanDisbursement[]) => {
+        const map = new Map<string, LoanDisbursement>();
+        existing.forEach(d => map.set(d.id, d));
+        result.forEach(d => map.set(d.id, d));
+        return Array.from(map.values());
+      };
+      setStorageItem('loan_disbursements', mergeInto(existingScoped), targetShopId);
+      setStorageItem('loan_disbursements', mergeInto(existingShared));
+    } else {
+      setStorageItem('loan_disbursements', result, targetShopId);
+      setStorageItem('loan_disbursements', result);
+    }
+
+    dbQueryCache.set(cacheKey, { data: result, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
+    return result;
+  },
+
+  async addLoanDisbursement(arg1: string | Omit<LoanDisbursement, 'id' | 'created_at'>, arg2?: any): Promise<LoanDisbursement> {
+    const disbursementData: Omit<LoanDisbursement, 'id' | 'created_at'> = typeof arg1 === 'string'
+      ? { ...arg2, loan_id: arg1 }
+      : arg1;
+
+    const activeSession = getSessionUser();
+    const sessionShopId = activeSession?.shop?.id || activeSession?.user?.shop_id || '';
+
+    // Find target loan across all storage keys
+    const allLoans = [
+      ...getStorageItem<Loan[]>('loans', DEFAULT_LOANS, sessionShopId),
+      ...getStorageItem<Loan[]>('loans', DEFAULT_LOANS),
+    ];
+    const targetLoan = allLoans.find(l => l.id === disbursementData.loan_id || l.loan_number === disbursementData.loan_id) || null;
+    const targetShopId = disbursementData.shop_id || targetLoan?.shop_id || sessionShopId || 'shared';
+
+    // Fetch all existing disbursements for this loan
+    let existingLoanDisbursements = await this.getDisbursements(targetShopId, disbursementData.loan_id);
+
+    // If no Disbursement #1 exists yet for this loan, synthesize Disbursement #1
+    if (targetLoan && !existingLoanDisbursements.some(d => d.disbursement_number === 1)) {
+      const initialDisbId = `disb-${targetLoan.id}-1`;
+      const initialDisb: LoanDisbursement = {
+        id: initialDisbId,
+        loan_id: targetLoan.id,
+        shop_id: targetShopId,
+        disbursement_number: 1,
+        amount: Number(targetLoan.loan_amount) || 0,
+        interest_rate: targetLoan.interest_rate || disbursementData.interest_rate || 1.5,
+        disbursement_date: targetLoan.loan_date || disbursementData.disbursement_date || new Date().toISOString().split('T')[0],
+        interest_start_date: targetLoan.loan_date || disbursementData.interest_start_date || new Date().toISOString().split('T')[0],
+        due_date: targetLoan.due_date || disbursementData.due_date || new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
+        tenure_months: targetLoan.tenure_months || 12,
+        status: targetLoan.status === 'Closed' ? 'Settled' : 'Active',
+        principal_outstanding: targetLoan.status === 'Closed' ? 0 : Number(targetLoan.loan_amount),
+        total_interest_paid: 0,
+        payment_method: 'Cash',
+        notes: 'Initial Gold Pledge Disbursement #1',
+        created_at: targetLoan.created_at || new Date().toISOString(),
+      };
+      
+      existingLoanDisbursements = [initialDisb, ...existingLoanDisbursements];
+
+      if (isRealSupabase && supabase) {
+        try {
+          await supabase.from('loan_disbursements').insert(initialDisb);
+        } catch (err) {
+          console.warn('Initial disbursement seed warning:', err);
+        }
+      }
+    }
+
+    const nextDisbursementNum = existingLoanDisbursements.length + 1;
+    const newDisbId = `disb-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+
+    const newDisb: LoanDisbursement = {
+      ...disbursementData,
+      id: newDisbId,
+      loan_id: targetLoan ? targetLoan.id : disbursementData.loan_id,
+      shop_id: targetShopId,
+      disbursement_number: nextDisbursementNum,
+      amount: Number(disbursementData.amount) || 0,
+      interest_rate: Number(disbursementData.interest_rate) || (targetLoan?.interest_rate || 1.5),
+      disbursement_date: disbursementData.disbursement_date || new Date().toISOString().split('T')[0],
+      interest_start_date: disbursementData.interest_start_date || disbursementData.disbursement_date || new Date().toISOString().split('T')[0],
+      due_date: disbursementData.due_date || (targetLoan?.due_date || new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0]),
+      tenure_months: Number(disbursementData.tenure_months) || (targetLoan?.tenure_months || 12),
+      status: 'Active',
+      principal_outstanding: Number(disbursementData.amount) || 0,
+      total_interest_paid: 0,
+      payment_method: disbursementData.payment_method || 'Cash',
+      notes: disbursementData.notes || `Top-up tranche #${nextDisbursementNum}`,
+      created_at: new Date().toISOString(),
+    };
+
+    let resultDisb = newDisb;
+
+    if (isRealSupabase && supabase) {
+      try {
+        const client = getDbClient();
+        if (client) {
+          const { payments, accrued_interest, total_balance_due, ...dbPayload } = newDisb as any;
+          const { data, error } = await client.from('loan_disbursements').insert(dbPayload).select().single();
+          if (!error && data) {
+            resultDisb = data as LoanDisbursement;
+          } else if (error) {
+            console.warn('Supabase addLoanDisbursement insert warning:', error.message);
+          }
+        }
+      } catch (err) {
+        console.warn('Supabase addLoanDisbursement exception:', err);
+      }
+    }
+
+    const updatedLoanDisbursements = [...existingLoanDisbursements.filter(d => d.id !== resultDisb.id), resultDisb];
+    updatedLoanDisbursements.sort((a, b) => (a.disbursement_number || 1) - (b.disbursement_number || 1));
+
+    // Save in storage
+    const localScoped = getStorageItem<LoanDisbursement[]>('loan_disbursements', DEFAULT_DISBURSEMENTS, targetShopId);
+    const combinedDisbs = [...localScoped.filter(d => d.id !== resultDisb.id), resultDisb];
+    setStorageItem('loan_disbursements', combinedDisbs, targetShopId);
+    setStorageItem('loan_disbursements', combinedDisbs);
+
+    // Update the master Loan record to reflect new total cumulative principal: Disbursement #1 + Disbursement #2 + ...
+    const activeLoanId = targetLoan ? targetLoan.id : disbursementData.loan_id;
+    const allTranchesForLoan = updatedLoanDisbursements.filter(d => (d.loan_id === activeLoanId || (targetLoan && d.loan_id === targetLoan.loan_number)) && !d.deleted_at);
+    const newTotalPrincipal = allTranchesForLoan.reduce((sum, d) => sum + (Number(d.amount) || 0), 0);
+
+    const updateLoanList = (list: Loan[]) => {
+      return list.map(l => {
+        if (l.id === activeLoanId || l.loan_number === activeLoanId) {
+          return {
+            ...l,
+            loan_amount: newTotalPrincipal,
+            total_disbursed: newTotalPrincipal,
+            status: 'Active' as any,
+            disbursements: allTranchesForLoan,
+          };
+        }
+        return l;
+      });
+    };
+
+    const loansScoped = getStorageItem<Loan[]>('loans', DEFAULT_LOANS, targetShopId);
+    setStorageItem('loans', updateLoanList(loansScoped), targetShopId);
+
+    const loansShared = getStorageItem<Loan[]>('loans', DEFAULT_LOANS);
+    setStorageItem('loans', updateLoanList(loansShared));
+
+    if (isRealSupabase && supabase && targetLoan) {
+      try {
+        await supabase.from('loans').update({ loan_amount: newTotalPrincipal, status: 'Active' }).eq('id', targetLoan.id);
+      } catch (err) {
+        console.warn('Supabase loan total amount update warning:', err);
+      }
+    }
+
+    clearDbCache();
+    broadcastDbUpdate('loan_disbursements');
+    broadcastDbUpdate('loans');
+
+    const session = getSessionUser();
+    logAuditEvent(
+      targetShopId,
+      session?.user?.id || 'system',
+      session?.user?.name || 'Staff User',
+      'CREATE',
+      'loan_disbursements',
+      resultDisb.id,
+      null,
+      { loan_id: resultDisb.loan_id, amount: resultDisb.amount, disbursement_number: resultDisb.disbursement_number }
+    ).catch(() => {});
+
+    return resultDisb;
+  },
+
   // ── Loans API ──────────────────────────────────────────────
   async getLoans(shopId: string): Promise<Loan[]> {
     if (!shopId) return [];
@@ -803,11 +1087,33 @@ export const db = {
             .is('deleted_at', null)
             .order('created_at', { ascending: false });
           if (!error && data) {
-            console.log("Raw Supabase loans count:", data.length);
-            console.log("Loan numbers:", data.map((l: any) => l.loan_number));
+            const [allDisbursements, allPayments] = await Promise.all([
+              this.getDisbursements(shopId),
+              this.getPayments(shopId),
+            ]);
+
+            const disbGroupMap = new Map<string, LoanDisbursement[]>();
+            allDisbursements.forEach(d => {
+              if (d && d.loan_id) {
+                const lid = String(d.loan_id).trim();
+                const existing = disbGroupMap.get(lid) || [];
+                existing.push(d);
+                disbGroupMap.set(lid, existing);
+              }
+            });
+
+            const pmtGroupMap = new Map<string, Payment[]>();
+            allPayments.forEach(p => {
+              if (p && p.loan_id) {
+                const lid = String(p.loan_id).trim();
+                const existing = pmtGroupMap.get(lid) || [];
+                existing.push(p);
+                pmtGroupMap.set(lid, existing);
+              }
+            });
 
             resultLoans = await Promise.all(
-              (data as Loan[]).map(async (loan) => {
+              (data as any[]).map(async (loan) => {
                 const cust = Array.isArray(loan.customer) ? loan.customer[0] : (loan.customer || {
                   id: loan.customer_id,
                   full_name: (loan as any).customer_name || 'Customer Record Unlinked',
@@ -825,7 +1131,36 @@ export const db = {
                   };
                 }
 
-                const pmts = (loan.payments || []).map((p: any) => ({ ...p, amount: Number(p.amount) || 0 }));
+                const embeddedPmts = (loan.payments || []).map((p: any) => ({ ...p, amount: Number(p.amount) || 0 }));
+                const pmtMap = new Map<string, Payment>();
+                const fromGroup = pmtGroupMap.get(String(loan.id).trim()) || (loan.loan_number ? pmtGroupMap.get(String(loan.loan_number).trim()) : null) || [];
+                fromGroup.forEach(p => pmtMap.set(p.id, p));
+                embeddedPmts.forEach((p: Payment) => pmtMap.set(p.id, p));
+                const pmts = Array.from(pmtMap.values()).sort((a, b) => new Date(b.created_at || b.payment_date || 0).getTime() - new Date(a.created_at || a.payment_date || 0).getTime());
+                
+                let tranches = disbGroupMap.get(String(loan.id).trim()) || (loan.loan_number ? disbGroupMap.get(String(loan.loan_number).trim()) : null) || [];
+                if (!tranches.some(t => t.disbursement_number === 1)) {
+                  const initialDisb: LoanDisbursement = {
+                    id: `disb-${loan.id}-1`,
+                    loan_id: loan.id,
+                    shop_id: loan.shop_id,
+                    disbursement_number: 1,
+                    amount: Number(loan.loan_amount) || 0,
+                    interest_rate: loan.interest_rate || 1.5,
+                    disbursement_date: loan.loan_date || new Date().toISOString().split('T')[0],
+                    interest_start_date: loan.loan_date || new Date().toISOString().split('T')[0],
+                    due_date: loan.due_date || new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
+                    tenure_months: loan.tenure_months || 12,
+                    status: loan.status === 'Closed' ? 'Settled' : 'Active',
+                    principal_outstanding: loan.status === 'Closed' ? 0 : Number(loan.loan_amount),
+                    payment_method: 'Cash',
+                    notes: 'Initial Gold Pledge Disbursement #1',
+                    created_at: loan.created_at || new Date().toISOString(),
+                  };
+                  tranches = [initialDisb, ...tranches];
+                }
+                tranches.sort((a, b) => (a.disbursement_number || 1) - (b.disbursement_number || 1));
+
                 const fin = calculateLoanFinancials(
                   loan.loan_amount,
                   loan.interest_rate,
@@ -833,10 +1168,16 @@ export const db = {
                   loan.due_date,
                   pmts,
                   loan.repayment_model || 'Bullet Repayment',
-                  loan.tenure_months || 12
+                  loan.tenure_months || 12,
+                  tranches
                 );
 
-                const effectiveStatus = (loan.status !== 'Closed' && loan.status !== 'Auctioned' && fin.isOverdue)
+                const isFullySettled = fin.remainingPrincipal <= 0 || fin.totalBalanceDue <= 0 || (loan.status as string) === 'Closed' || (loan.status as string) === 'Settled';
+                const effectiveStatus: LoanStatus = isFullySettled
+                  ? 'Closed'
+                  : loan.status === 'Auctioned'
+                  ? 'Auctioned'
+                  : fin.isOverdue
                   ? 'Overdue'
                   : (loan.status || 'Active');
 
@@ -846,8 +1187,11 @@ export const db = {
                   customer: cust,
                   gold_item: rawGold,
                   payments: pmts,
-                  accrued_interest: fin.netAccruedInterest,
-                  total_balance_due: fin.totalBalanceDue,
+                  disbursements: tranches,
+                  total_disbursed: fin.totalDisbursed || loan.loan_amount,
+                  total_principal_outstanding: isFullySettled ? 0 : fin.remainingPrincipal,
+                  accrued_interest: isFullySettled ? 0 : fin.netAccruedInterest,
+                  total_balance_due: isFullySettled ? 0 : fin.totalBalanceDue,
                 };
               })
             );
@@ -861,10 +1205,11 @@ export const db = {
       }
     }
 
-    const [customersList, goldItemsList, paymentsList] = await Promise.all([
+    const [customersList, goldItemsList, paymentsList, allDisbursements] = await Promise.all([
       this.getCustomers(shopId),
       this.getGoldItems(shopId),
       this.getPayments(shopId),
+      this.getDisbursements(shopId),
     ]);
 
     const goldMap = new Map<string, GoldItem>();
@@ -882,6 +1227,16 @@ export const db = {
       }
     });
 
+    const disbGroupMap = new Map<string, LoanDisbursement[]>();
+    allDisbursements.forEach(d => {
+      if (d && d.loan_id) {
+        const lid = String(d.loan_id).trim();
+        const existing = disbGroupMap.get(lid) || [];
+        existing.push(d);
+        disbGroupMap.set(lid, existing);
+      }
+    });
+
     const localLoans = getStorageItem<Loan[]>('loans', DEFAULT_LOANS).filter(l => l.shop_id === shopId && !l.deleted_at);
     resultLoans = localLoans.map((loan, idx) => {
       const cust = resolveLoanCustomer(loan, customersList, idx);
@@ -890,6 +1245,29 @@ export const db = {
       const gold = Array.isArray(rawGold) ? rawGold[0] : rawGold;
 
       const pmts = pmtGroupMap.get(String(loan.id).trim()) || (loan.loan_number ? pmtGroupMap.get(String(loan.loan_number).trim()) : null) || [];
+      
+      let tranches = disbGroupMap.get(String(loan.id).trim()) || (loan.loan_number ? disbGroupMap.get(String(loan.loan_number).trim()) : null) || [];
+      if (!tranches.some(t => t.disbursement_number === 1)) {
+        const initialDisb: LoanDisbursement = {
+          id: `disb-${loan.id}-1`,
+          loan_id: loan.id,
+          shop_id: loan.shop_id,
+          disbursement_number: 1,
+          amount: Number(loan.loan_amount) || 0,
+          interest_rate: loan.interest_rate || 1.5,
+          disbursement_date: loan.loan_date || new Date().toISOString().split('T')[0],
+          interest_start_date: loan.loan_date || new Date().toISOString().split('T')[0],
+          due_date: loan.due_date || new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
+          tenure_months: loan.tenure_months || 12,
+          status: loan.status === 'Closed' ? 'Settled' : 'Active',
+          principal_outstanding: loan.status === 'Closed' ? 0 : Number(loan.loan_amount),
+          payment_method: 'Cash',
+          notes: 'Initial Gold Pledge Disbursement #1',
+          created_at: loan.created_at || new Date().toISOString(),
+        };
+        tranches = [initialDisb, ...tranches];
+      }
+      tranches.sort((a, b) => (a.disbursement_number || 1) - (b.disbursement_number || 1));
 
       const fin = calculateLoanFinancials(
         loan.loan_amount,
@@ -898,10 +1276,16 @@ export const db = {
         loan.due_date,
         pmts,
         loan.repayment_model || 'Bullet Repayment',
-        loan.tenure_months || 12
+        loan.tenure_months || 12,
+        tranches
       );
 
-      const effectiveStatus = (loan.status !== 'Closed' && loan.status !== 'Auctioned' && fin.isOverdue)
+      const isFullySettled = fin.remainingPrincipal <= 0 || fin.totalBalanceDue <= 0 || (loan.status as string) === 'Closed' || (loan.status as string) === 'Settled';
+      const effectiveStatus: LoanStatus = isFullySettled
+        ? 'Closed'
+        : loan.status === 'Auctioned'
+        ? 'Auctioned'
+        : fin.isOverdue
         ? 'Overdue'
         : (loan.status || 'Active');
 
@@ -911,8 +1295,11 @@ export const db = {
         customer: cust,
         gold_item: gold,
         payments: pmts,
-        accrued_interest: fin.netAccruedInterest,
-        total_balance_due: fin.totalBalanceDue,
+        disbursements: tranches,
+        total_disbursed: fin.totalDisbursed || loan.loan_amount,
+        total_principal_outstanding: isFullySettled ? 0 : fin.remainingPrincipal,
+        accrued_interest: isFullySettled ? 0 : fin.netAccruedInterest,
+        total_balance_due: isFullySettled ? 0 : fin.totalBalanceDue,
       };
     });
 
@@ -926,7 +1313,10 @@ export const db = {
 
     if (isRealSupabase && supabase) {
       try {
-        let q = supabase.from('loans').select('*, customer:customers(*), gold_item:gold_items(*), payments(*)').or(`id.eq.${loanId},loan_number.eq.${loanId}`);
+        let q = supabase
+          .from('loans')
+          .select('*, customer:customers(*), gold_item:gold_items(*), payments(*)')
+          .or(`id.eq.${loanId},loan_number.eq.${loanId}`);
         if (shopId) q = q.eq('shop_id', shopId);
         const { data, error } = await q.limit(1);
         if (!error && data && data.length > 0) {
@@ -963,6 +1353,37 @@ export const db = {
           cloudPmts.forEach((p: Payment) => pmtMap.set(p.id, p));
           const pmts = Array.from(pmtMap.values()).sort((a, b) => new Date(b.created_at || b.payment_date || 0).getTime() - new Date(a.created_at || a.payment_date || 0).getTime());
 
+          // Fetch all disbursements (cloud + local storage merged)
+          const fetchedTranches = await this.getDisbursements(activeShopId, l.id);
+          const cloudTranches = Array.isArray(l.disbursements) ? l.disbursements : [];
+          const trancheMap = new Map<string, LoanDisbursement>();
+          cloudTranches.forEach((d: LoanDisbursement) => trancheMap.set(d.id, d));
+          fetchedTranches.forEach((d: LoanDisbursement) => trancheMap.set(d.id, d));
+
+          let tranches: LoanDisbursement[] = Array.from(trancheMap.values());
+          if (!tranches.some(t => t.disbursement_number === 1)) {
+            const initialDisb: LoanDisbursement = {
+              id: `disb-${l.id}-1`,
+              loan_id: l.id,
+              shop_id: l.shop_id || activeShopId,
+              disbursement_number: 1,
+              amount: Number(l.loan_amount) || 0,
+              interest_rate: l.interest_rate || 1.5,
+              disbursement_date: l.loan_date || new Date().toISOString().split('T')[0],
+              interest_start_date: l.loan_date || new Date().toISOString().split('T')[0],
+              due_date: l.due_date || new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
+              tenure_months: l.tenure_months || 12,
+              status: l.status === 'Closed' ? 'Settled' : 'Active',
+              principal_outstanding: l.status === 'Closed' ? 0 : Number(l.loan_amount),
+              total_interest_paid: 0,
+              payment_method: 'Cash',
+              notes: 'Initial Gold Pledge Disbursement #1',
+              created_at: l.created_at || new Date().toISOString(),
+            };
+            tranches = [initialDisb, ...tranches];
+          }
+          tranches.sort((a, b) => (a.disbursement_number || 1) - (b.disbursement_number || 1));
+
           const fin = calculateLoanFinancials(
             l.loan_amount,
             l.interest_rate,
@@ -970,17 +1391,31 @@ export const db = {
             l.due_date,
             pmts,
             l.repayment_model || 'Bullet Repayment',
-            l.tenure_months || 12
+            l.tenure_months || 12,
+            tranches
           );
+
+          const isFullySettled = fin.remainingPrincipal <= 0 || fin.totalBalanceDue <= 0 || (l.status as string) === 'Closed' || (l.status as string) === 'Settled';
+          const effectiveStatus: LoanStatus = isFullySettled
+            ? 'Closed'
+            : l.status === 'Auctioned'
+            ? 'Auctioned'
+            : fin.isOverdue
+            ? 'Overdue'
+            : (l.status || 'Active');
 
           return {
             ...l,
+            status: effectiveStatus,
             customer: cust,
             gold_item: gold,
             payments: pmts,
+            disbursements: tranches,
+            total_disbursed: fin.totalDisbursed || l.loan_amount,
+            total_principal_outstanding: isFullySettled ? 0 : fin.remainingPrincipal,
             total_interest_paid: fin.totalInterestPaid,
-            accrued_interest: fin.netAccruedInterest,
-            total_balance_due: fin.totalBalanceDue,
+            accrued_interest: isFullySettled ? 0 : fin.netAccruedInterest,
+            total_balance_due: isFullySettled ? 0 : fin.totalBalanceDue,
           } as Loan;
         }
       } catch (err) {
@@ -997,6 +1432,32 @@ export const db = {
     const goldItems = targetShopId ? await this.getGoldItems(targetShopId) : [];
     const payments = targetShopId ? await this.getPayments(targetShopId) : [];
     const pmts = payments.filter(p => p.loan_id === raw.id || p.loan_id === raw.loan_number);
+
+    let rawTranches = await this.getDisbursements(targetShopId, raw.id);
+    let tranches: LoanDisbursement[] = [...rawTranches];
+    if (!tranches.some(t => t.disbursement_number === 1)) {
+      const initialDisb: LoanDisbursement = {
+        id: `disb-${raw.id}-1`,
+        loan_id: raw.id,
+        shop_id: raw.shop_id,
+        disbursement_number: 1,
+        amount: Number(raw.loan_amount) || 0,
+        interest_rate: raw.interest_rate || 1.5,
+        disbursement_date: raw.loan_date,
+        interest_start_date: raw.loan_date,
+        due_date: raw.due_date,
+        tenure_months: raw.tenure_months || 12,
+        status: raw.status === 'Closed' ? 'Settled' : 'Active',
+        principal_outstanding: raw.status === 'Closed' ? 0 : Number(raw.loan_amount),
+        total_interest_paid: 0,
+        payment_method: 'Cash',
+        notes: 'Initial Gold Pledge Disbursement #1',
+        created_at: raw.created_at,
+      };
+      tranches = [initialDisb, ...tranches];
+    }
+    tranches.sort((a, b) => (a.disbursement_number || 1) - (b.disbursement_number || 1));
+
     const fin = calculateLoanFinancials(
       raw.loan_amount,
       raw.interest_rate,
@@ -1004,8 +1465,18 @@ export const db = {
       raw.due_date,
       pmts,
       raw.repayment_model || 'Bullet Repayment',
-      raw.tenure_months || 12
+      raw.tenure_months || 12,
+      tranches
     );
+
+    const isFullySettled = fin.remainingPrincipal <= 0 || fin.totalBalanceDue <= 0 || (raw.status as string) === 'Closed' || (raw.status as string) === 'Settled';
+    const effectiveStatus: LoanStatus = isFullySettled
+      ? 'Closed'
+      : raw.status === 'Auctioned'
+      ? 'Auctioned'
+      : fin.isOverdue
+      ? 'Overdue'
+      : (raw.status || 'Active');
 
     const cust = resolveLoanCustomer(raw, customers, 0);
     const rawGold = goldItems.find(g => g.id === raw.gold_item_id || String(g.id).trim() === String(raw.gold_item_id).trim()) || raw.gold_item;
@@ -1013,12 +1484,16 @@ export const db = {
 
     return {
       ...raw,
+      status: effectiveStatus,
       customer: cust,
       gold_item: gold,
       payments: pmts,
+      disbursements: tranches,
+      total_disbursed: fin.totalDisbursed || raw.loan_amount,
+      total_principal_outstanding: isFullySettled ? 0 : fin.remainingPrincipal,
       total_interest_paid: fin.totalInterestPaid,
-      accrued_interest: fin.netAccruedInterest,
-      total_balance_due: fin.totalBalanceDue,
+      accrued_interest: isFullySettled ? 0 : fin.netAccruedInterest,
+      total_balance_due: isFullySettled ? 0 : fin.totalBalanceDue,
     };
   },
 
@@ -1127,6 +1602,39 @@ export const db = {
       }
     }
 
+    // Automatically seed and persist initial Disbursement #1
+    const initialDisb: LoanDisbursement = {
+      id: `disb-${newLoan.id}-1`,
+      loan_id: newLoan.id,
+      shop_id: newLoan.shop_id,
+      disbursement_number: 1,
+      amount: Number(newLoan.loan_amount) || 0,
+      interest_rate: newLoan.interest_rate || 1.5,
+      disbursement_date: newLoan.loan_date,
+      interest_start_date: newLoan.loan_date,
+      due_date: newLoan.due_date,
+      tenure_months: newLoan.tenure_months || 12,
+      status: 'Active',
+      principal_outstanding: Number(newLoan.loan_amount) || 0,
+      total_interest_paid: 0,
+      payment_method: 'Cash',
+      notes: 'Initial Gold Pledge Disbursement #1',
+      created_at: newLoan.created_at,
+    };
+
+    const localDisbursements = getStorageItem<LoanDisbursement[]>('loan_disbursements', DEFAULT_DISBURSEMENTS);
+    localDisbursements.push(initialDisb);
+    setStorageItem('loan_disbursements', localDisbursements, newLoan.shop_id);
+
+    if (isRealSupabase && supabase) {
+      try {
+        await supabase.from('loan_disbursements').insert(initialDisb);
+      } catch (err) {
+        console.warn('Initial disbursement insert warning:', err);
+      }
+    }
+
+    broadcastDbUpdate('loan_disbursements');
     broadcastDbUpdate('loans');
 
     const session = getSessionUser();
@@ -1233,7 +1741,7 @@ export const db = {
       try {
         const { data, error } = await supabase
           .from('payments')
-          .select('*, loan:loans(*)')
+          .select('*, loan:loans(*, customer:customers(*), gold_item:gold_items(*))')
           .eq('shop_id', shopId)
           .order('created_at', { ascending: false });
         if (!error && data) {
@@ -1255,12 +1763,25 @@ export const db = {
       }
     });
 
-    const combined = Array.from(mergedMap.values()).map((p) => {
-      const loan = localLoans.find((l) => l.id === p.loan_id) || p.loan;
+    const allPaymentsArray = Array.from(mergedMap.values());
+    const loanPmtsMap = new Map<string, Payment[]>();
+    allPaymentsArray.forEach(p => {
+      if (p && p.loan_id) {
+        const lid = String(p.loan_id).trim();
+        const existing = loanPmtsMap.get(lid) || [];
+        existing.push(p);
+        loanPmtsMap.set(lid, existing);
+      }
+    });
+
+    const combined = allPaymentsArray.map((p) => {
+      const rawLoan = localLoans.find((l) => l.id === p.loan_id) || p.loan;
+      const loanPayments = loanPmtsMap.get(String(p.loan_id).trim()) || (rawLoan?.loan_number ? loanPmtsMap.get(String(rawLoan.loan_number).trim()) : null) || [];
+      const loan = rawLoan ? { ...rawLoan, payments: loanPayments } : undefined;
       return { ...p, loan };
     });
 
-    setStorageItem('payments', combined);
+    setStorageItem('payments', allPaymentsArray.map(p => ({ ...p, loan: undefined })));
     dbQueryCache.set(cacheKey, { data: combined, expiresAt: Date.now() + DEFAULT_CACHE_TTL });
     return combined;
   },
@@ -1344,15 +1865,66 @@ export const db = {
       targetLoan.accrued_interest = fin.netAccruedInterest;
       targetLoan.total_balance_due = fin.totalBalanceDue;
 
-      if (paymentData.payment_type === 'Full Settlement' || fin.totalBalanceDue <= 0) {
+      // Also update target disbursement if payment is targeted to a specific tranche
+      if (paymentData.disbursement_id) {
+        const localDisbs = getStorageItem<LoanDisbursement[]>('loan_disbursements', DEFAULT_DISBURSEMENTS);
+        const disbIdx = localDisbs.findIndex(d => d.id === paymentData.disbursement_id);
+        if (disbIdx !== -1) {
+          const targetDisb = localDisbs[disbIdx];
+          const disbPmts = (targetLoan.payments || []).filter(p => p.disbursement_id === targetDisb.id);
+          const disbFin = calculateDisbursementFinancials(
+            targetDisb,
+            disbPmts,
+            targetLoan.repayment_model || 'Bullet Repayment'
+          );
+          targetDisb.principal_outstanding = disbFin.remainingPrincipal;
+          targetDisb.total_interest_paid = disbFin.totalInterestPaid;
+          if (disbFin.totalBalanceDue <= 0 || paymentData.payment_type === 'Full Settlement') {
+            targetDisb.status = 'Settled';
+          }
+          setStorageItem('loan_disbursements', localDisbs, targetDisb.shop_id);
+          broadcastDbUpdate('loan_disbursements');
+        }
+      }
+
+      const isFullyClosed = paymentData.payment_type === 'Full Settlement' || fin.totalBalanceDue <= 0 || fin.remainingPrincipal <= 0;
+      if (isFullyClosed) {
         targetLoan.status = 'Closed';
         targetLoan.closed_date = new Date().toISOString().split('T')[0];
+        targetLoan.total_principal_outstanding = 0;
+        targetLoan.total_balance_due = 0;
+        targetLoan.accrued_interest = 0;
+
+        if (isRealSupabase && supabase) {
+          try {
+            await supabase
+              .from('loans')
+              .update({
+                status: 'Closed',
+                closed_date: new Date().toISOString().split('T')[0],
+              })
+              .or(`id.eq.${targetLoan.id},loan_number.eq.${targetLoan.id}`);
+
+            await supabase
+              .from('loan_disbursements')
+              .update({
+                status: 'Settled',
+                principal_outstanding: 0,
+              })
+              .eq('loan_id', targetLoan.id);
+          } catch (err) {
+            console.warn('Supabase loan closure sync warning:', err);
+          }
+        }
       }
       setStorageItem('loans', loans);
+      setStorageItem('loans', loans, targetLoan.shop_id);
     }
 
+    clearDbCache();
     broadcastDbUpdate('payments');
     broadcastDbUpdate('loans');
+    broadcastDbUpdate('loan_disbursements');
     return resultPmt;
   },
 

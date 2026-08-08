@@ -1,7 +1,7 @@
 'use client';
 
 // ========================================================
-// SuvarnaLoan ERP - Shared Dashboard Layout
+// SuvarnaLoan ERP - Shared Dashboard Layout with Bilingual Support
 // Location: src/components/DashboardLayout.tsx
 // ========================================================
 
@@ -32,12 +32,14 @@ import {
   Lock,
   RefreshCw,
   Calendar,
+  Languages,
 } from 'lucide-react';
 import { getSessionUser, setSessionUser, supabase, isRealSupabase } from '../lib/supabase/client';
 import { db, setupRealtimeSync, clearDbCache } from '../lib/supabase/supabaseDb';
 import { User, Shop } from '../types';
 import { formatCurrency, getRoleBadgeClass } from '../lib/utils';
 import { Toaster, toast } from 'sonner';
+import { useTranslation } from '../providers/LanguageProvider';
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -46,6 +48,7 @@ interface DashboardLayoutProps {
 export default function DashboardLayout({ children }: DashboardLayoutProps) {
   const pathname = usePathname();
   const router = useRouter();
+  const { dict, language, setLanguage, isMarathi } = useTranslation();
 
   const [sidebarOpen, setSidebarOpenRaw] = useState(false);
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -220,10 +223,10 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
         });
       }
 
-      toast.success("Live Gold Rates updated across ERP & Database!");
+      toast.success(isMarathi ? "सराफा बाजारभाव यशस्वीरित्या अद्ययावत केले!" : "Live Gold Rates updated across ERP & Database!");
       setRateModalOpen(false);
     } else {
-      toast.error("Failed to update Gold Rates");
+      toast.error(isMarathi ? "सराफा दर अद्ययावत करण्यात त्रुटी" : "Failed to update Gold Rates");
     }
   };
 
@@ -245,10 +248,12 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   if (loading) {
     return (
-      <div className="flex h-screen w-screen items-center justify-center bg-slate-900 text-white">
+      <div className="flex h-screen w-screen items-center justify-center bg-slate-900 text-white font-sans">
         <div className="flex flex-col items-center gap-3">
           <div className="h-10 w-10 animate-spin rounded-full border-4 border-amber-500 border-t-transparent"></div>
-          <span className="text-sm font-medium text-amber-200">Loading SuvarnaLoan ERP...</span>
+          <span className="text-sm font-medium text-amber-200">
+            {isMarathi ? 'सुवर्ण कर्ज ईआरपी सुरू होत आहे...' : 'Loading SuvarnaLoan ERP...'}
+          </span>
         </div>
       </div>
     );
@@ -258,27 +263,27 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
 
   const navSections = [
     {
-      group: 'MAIN',
+      group: isMarathi ? 'मुख्य विभाग' : 'MAIN',
       items: [
-        { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+        { label: dict.nav.dashboard, href: '/dashboard', icon: LayoutDashboard },
       ],
     },
     {
-      group: 'DAILY WORK',
+      group: isMarathi ? 'दैनिक कार्यप्रणाली' : 'DAILY WORK',
       items: [
-        { label: 'Gold Loans', href: '/dashboard/loans', icon: Coins },
-        { label: 'Customers', href: '/dashboard/customers', icon: Users },
-        { label: 'WhatsApp Logs', href: '/dashboard/whatsapp-logs', icon: MessageSquare },
-        { label: 'Vault & Safe Stock', href: '/dashboard/gold-items', icon: Package },
-        { label: 'Gold Calculator', href: '/dashboard/valuation', icon: Calculator },
-        { label: 'Payments & Receipts', href: '/dashboard/payments', icon: Receipt },
+        { label: dict.nav.loans, href: '/dashboard/loans', icon: Coins },
+        { label: dict.nav.customers, href: '/dashboard/customers', icon: Users },
+        { label: dict.nav.whatsapp, href: '/dashboard/whatsapp-logs', icon: MessageSquare },
+        { label: dict.nav.goldItems, href: '/dashboard/gold-items', icon: Package },
+        { label: dict.nav.goldValuation, href: '/dashboard/valuation', icon: Calculator },
+        { label: dict.nav.payments, href: '/dashboard/payments', icon: Receipt },
       ],
     },
     {
-      group: 'REPORTS & SETUP',
+      group: isMarathi ? 'अहवाल व संस्था' : 'REPORTS & SETUP',
       items: [
-        { label: 'Reports', href: '/dashboard/reports', icon: FilePieChart },
-        { label: 'Settings & Rates', href: '/dashboard/settings', icon: Settings },
+        { label: dict.nav.reports, href: '/dashboard/reports', icon: FilePieChart },
+        { label: dict.nav.settings, href: '/dashboard/settings', icon: Settings },
       ],
     },
   ];
@@ -292,9 +297,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <Lock className="w-8 h-8" />
           </div>
           <div>
-            <h2 className="text-xl font-black text-white tracking-tight">Shop Account Deactivated</h2>
+            <h2 className="text-xl font-black text-white tracking-tight">
+              {isMarathi ? 'पेढीचे खाते निलंबित केले आहे' : 'Shop Account Deactivated'}
+            </h2>
             <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-              Access to <strong className="text-amber-400">{currentShop.shop_name}</strong> ERP has been deactivated by Platform Super Admin. All multi-tenant operations are suspended.
+              {isMarathi
+                ? `सुपर ॲडमिनद्वारे ${currentShop.shop_name} चे ईआरपी खाते तात्पुरते बंद करण्यात आले आहे.`
+                : `Access to ${currentShop.shop_name} ERP has been deactivated by Platform Super Admin.`
+              }
             </p>
           </div>
 
@@ -304,11 +314,11 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               <span className="font-mono text-white">{currentShop.id}</span>
             </div>
             <div className="flex justify-between text-slate-400">
-              <span>Owner Name:</span>
+              <span>{isMarathi ? 'मालकाचे नाव:' : 'Owner Name:'}</span>
               <span className="text-white font-bold">{currentShop.owner_name}</span>
             </div>
             <div className="flex justify-between text-slate-400">
-              <span>Status:</span>
+              <span>{isMarathi ? 'स्थिती:' : 'Status:'}</span>
               <span className="text-rose-400 font-extrabold uppercase">Deactivated in Supabase DB</span>
             </div>
           </div>
@@ -319,16 +329,16 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 db.getShop(currentShop.id).then((fresh) => {
                   if (fresh && fresh.is_active !== false) {
                     setCurrentShop(fresh);
-                    toast.success('Shop reactivated! Unlocking ERP...');
+                    toast.success(isMarathi ? 'खाते पुन्हा सक्रिय झाले!' : 'Shop reactivated! Unlocking ERP...');
                   } else {
-                    toast.error('Shop is still deactivated by Super Admin');
+                    toast.error(isMarathi ? 'खाते अद्याप निलंबित आहे' : 'Shop is still deactivated by Super Admin');
                   }
                 });
               }}
               className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-slate-950 rounded-xl font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 transition-all"
             >
               <RefreshCw className="w-4 h-4" />
-              <span>Check Activation Status</span>
+              <span>{isMarathi ? 'सक्रियता तपासा' : 'Check Activation Status'}</span>
             </button>
             <button
               onClick={() => {
@@ -337,7 +347,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               }}
               className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl font-bold text-xs transition-colors"
             >
-              Logout to Login Screen
+              {isMarathi ? 'लॉगिन पृष्ठावर जा' : 'Logout to Login Screen'}
             </button>
           </div>
         </div>
@@ -350,7 +360,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       <div className="flex min-h-screen bg-slate-50 text-slate-900 font-sans">
       <Toaster position="top-right" richColors />
 
-      {/* Desktop Sidebar (Fixed Sticky position - does NOT scroll away with page content) */}
+      {/* Desktop Sidebar */}
       <aside
         className={`hidden md:flex flex-col border-r border-slate-800 bg-slate-950 text-white transition-all duration-300 sticky top-0 h-screen shrink-0 z-30 overflow-hidden ${
           isCollapsed ? 'w-20' : 'w-64'
@@ -364,8 +374,8 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
                 <Coins className="w-5 h-5" />
               </div>
               <div className="flex flex-col">
-                <span className="text-sm font-bold tracking-tight text-white">SuvarnaLoan</span>
-                <span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wider">Humble Goats ERP</span>
+                <span className="text-sm font-bold tracking-tight text-white">{isMarathi ? 'सुवर्ण कर्ज' : 'SuvarnaLoan'}</span>
+                <span className="text-[10px] font-semibold text-amber-400 uppercase tracking-wider">Enterprise ERP</span>
               </div>
             </div>
           )}
@@ -387,7 +397,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           <div className="mx-3 my-2 p-3 rounded-xl bg-slate-900 border border-amber-500/30 flex items-center justify-between shrink-0">
             <div className="flex flex-col">
               <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider flex items-center gap-1">
-                <TrendingUp className="w-3 h-3" /> Live 24K Rate
+                <TrendingUp className="w-3 h-3" /> {isMarathi ? '२४ कॅरेट भाव' : 'Live 24K Rate'}
               </span>
               <span className="text-sm font-extrabold text-white">₹{rate24k}/g</span>
             </div>
@@ -395,7 +405,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               onClick={() => setRateModalOpen(true)}
               className="text-[11px] px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg font-bold transition-all subtle-press shadow-2xs"
             >
-              Update
+              {isMarathi ? 'बदला' : 'Update'}
             </button>
           </div>
         )}
@@ -432,7 +442,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           ))}
         </nav>
 
-        {/* User Profile Card (Positioned Below Navigation / Settings & Rates) */}
+        {/* User Profile Card */}
         <div className="mx-3 my-3 p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between shrink-0">
           {!isCollapsed ? (
             <>
@@ -448,7 +458,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
               <button
                 onClick={handleLogout}
                 className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors shrink-0"
-                title="Sign out"
+                title={dict.nav.logout}
               >
                 <LogOut className="w-4 h-4" />
               </button>
@@ -457,7 +467,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <button
               onClick={handleLogout}
               className="w-full flex justify-center p-1 text-slate-400 hover:text-rose-400 rounded-lg"
-              title="Sign out"
+              title={dict.nav.logout}
             >
               <LogOut className="w-4 h-4" />
             </button>
@@ -486,7 +496,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             <div className="w-8 h-8 rounded-lg bg-amber-500 flex items-center justify-center font-bold text-slate-950">
               <Coins className="w-5 h-5" />
             </div>
-            <span className="font-bold text-white text-sm">SuvarnaLoan ERP</span>
+            <span className="font-bold text-white text-sm">{isMarathi ? 'सुवर्ण कर्ज ईआरपी' : 'SuvarnaLoan ERP'}</span>
           </div>
           <button onClick={() => setSidebarOpen(false)} className="p-1 text-slate-400 hover:text-white">
             <X className="w-5 h-5" />
@@ -520,7 +530,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           ))}
         </nav>
 
-        {/* Mobile User Profile Card (Below Navigation / Settings & Rates) */}
+        {/* Mobile User Profile Card */}
         <div className="mx-4 my-3 p-3 rounded-xl bg-slate-900 border border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-full bg-slate-800 border border-amber-500/40 flex items-center justify-center font-bold text-amber-400 text-xs shrink-0">
@@ -534,7 +544,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
           <button
             onClick={handleLogout}
             className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors"
-            title="Sign out"
+            title={dict.nav.logout}
           >
             <LogOut className="w-4 h-4" />
           </button>
@@ -556,7 +566,7 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             {currentShop && (
               <div className="flex items-center gap-2 bg-amber-50 border border-amber-200/80 px-3 py-1.5 rounded-xl">
                 <Building2 className="w-4 h-4 text-amber-700 shrink-0" />
-                <span className="text-xs font-bold text-amber-950 truncate max-w-[200px] md:max-w-xs">
+                <span className="text-xs font-bold text-amber-950 truncate max-w-[180px] md:max-w-xs">
                   {currentShop.shop_name}
                 </span>
                 <span className="hidden sm:inline-block text-[10px] font-extrabold uppercase px-1.5 py-0.5 rounded-md bg-amber-200 text-amber-900">
@@ -566,11 +576,50 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
             )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 md:gap-3">
+            {/* Quick Interactive Language Switcher */}
+            <div className="flex items-center bg-slate-100 p-0.5 rounded-xl border border-slate-200 text-xs font-bold">
+              <button
+                type="button"
+                onClick={() => {
+                  setLanguage('en');
+                  toast.success("Language switched to English");
+                }}
+                className={`px-2.5 py-1 rounded-lg transition-all duration-120 ${
+                  language === 'en'
+                    ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                EN
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setLanguage('mr');
+                  toast.success("भाषा यशस्वीरित्या मराठी करण्यात आली आहे!");
+                }}
+                className={`px-2.5 py-1 rounded-lg transition-all duration-120 ${
+                  language === 'mr'
+                    ? 'bg-amber-500 text-slate-950 font-black shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                मराठी
+              </button>
+            </div>
+
             {/* Live Today's Date Pill */}
             <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-amber-50 border border-amber-200/80 rounded-xl text-xs font-bold text-amber-950 shadow-2xs">
               <Calendar className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-              <span>{new Date().toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}</span>
+              <span>
+                {new Date().toLocaleDateString(isMarathi ? 'mr-IN' : 'en-IN', {
+                  weekday: 'short',
+                  day: 'numeric',
+                  month: 'short',
+                  year: 'numeric',
+                })}
+              </span>
             </div>
 
             {/* Live rates quick pill */}
@@ -598,75 +647,83 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       {/* Gold Rate Master Modal */}
       {rateModalOpen && (
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-xs z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200">
-            <div className="flex items-center justify-between pb-4 border-b border-slate-100">
-              <div className="flex items-center gap-2 text-amber-600">
-                <Coins className="w-5 h-5" />
-                <h3 className="text-base font-bold text-slate-900">Update Today's Live Gold Rates</h3>
-              </div>
-              <button onClick={() => setRateModalOpen(false)} className="text-slate-400 hover:text-slate-600">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-100">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                <Coins className="w-5 h-5 text-amber-600" />
+                <span>{isMarathi ? 'सराफा बाजारभाव अद्ययावत करा' : 'Update Gold Bullion Rates'}</span>
+              </h2>
+              <button
+                onClick={() => setRateModalOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 rounded-lg"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleUpdateRates} className="space-y-4 pt-4">
+            <form onSubmit={handleUpdateRates} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">24K Fine Gold Rate (per gram in ₹)</label>
+                <label className="text-xs font-bold text-slate-700 block mb-1">
+                  {dict.settings.rate24k}
+                </label>
                 <input
                   type="number"
                   value={rate24k}
-                  onChange={(e) => setRate24k(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  onChange={(e) => {
+                    const r = Number(e.target.value);
+                    setRate24k(r);
+                    setRate22k(Math.round(r * (22 / 24)));
+                    setRate20k(Math.round(r * (20 / 24)));
+                    setRate18k(Math.round(r * (18 / 24)));
+                  }}
+                  className="w-full px-3 py-2 border rounded-xl font-bold text-slate-900 focus:ring-2 focus:ring-amber-500"
                   required
                 />
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">22K Standard Gold Rate (per gram in ₹)</label>
-                <input
-                  type="number"
-                  value={rate22k}
-                  onChange={(e) => setRate22k(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                  required
-                />
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[10px] font-bold text-slate-600 block mb-1">{isMarathi ? '२२ कॅरेट / ग्रॅम' : '22K / Gram'}</label>
+                  <input
+                    type="number"
+                    value={rate22k}
+                    onChange={(e) => setRate22k(Number(e.target.value))}
+                    className="w-full px-2 py-1.5 border rounded-lg text-xs font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-600 block mb-1">{isMarathi ? '२० कॅरेट / ग्रॅम' : '20K / Gram'}</label>
+                  <input
+                    type="number"
+                    value={rate20k}
+                    onChange={(e) => setRate20k(Number(e.target.value))}
+                    className="w-full px-2 py-1.5 border rounded-lg text-xs font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-bold text-slate-600 block mb-1">{isMarathi ? '१८ कॅरेट / ग्रॅम' : '18K / Gram'}</label>
+                  <input
+                    type="number"
+                    value={rate18k}
+                    onChange={(e) => setRate18k(Number(e.target.value))}
+                    className="w-full px-2 py-1.5 border rounded-lg text-xs font-bold"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">20K Gold Rate (per gram in ₹)</label>
-                <input
-                  type="number"
-                  value={rate20k}
-                  onChange={(e) => setRate20k(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">18K Gold Rate (per gram in ₹)</label>
-                <input
-                  type="number"
-                  value={rate18k}
-                  onChange={(e) => setRate18k(Number(e.target.value))}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                  required
-                />
-              </div>
-
-              <div className="pt-2 flex items-center justify-end gap-2">
+              <div className="flex gap-2 pt-2">
                 <button
                   type="button"
                   onClick={() => setRateModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+                  className="flex-1 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold text-xs"
                 >
-                  Cancel
+                  {dict.common.cancel}
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 text-xs font-bold bg-amber-500 text-white hover:bg-amber-600 rounded-xl shadow-sm gold-glow"
+                  className="flex-1 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl font-black text-xs shadow-md"
                 >
-                  Save Gold Rates
+                  {dict.common.save}
                 </button>
               </div>
             </form>

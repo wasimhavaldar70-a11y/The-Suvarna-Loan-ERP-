@@ -20,8 +20,10 @@ import { Customer } from '../../../types';
 import { toast } from 'sonner';
 import { exportToExcel } from '../../../lib/excel-export';
 import { exportToPDF } from '../../../lib/pdf-export';
+import { useTranslation } from '../../../providers/LanguageProvider';
 
 export default function CustomersPage() {
+  const { dict, language, isMarathi } = useTranslation();
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -408,10 +410,10 @@ export default function CustomersPage() {
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <h1 className="text-xl md:text-2xl font-extrabold text-slate-900 tracking-tight">
-              Borrower Customer Directory & KYC
+              {dict.customer.title}
             </h1>
             <p className="text-xs text-slate-500 font-medium">
-              Manage customers, live camera photo capture & auto 90% compressed WebP Aadhaar/PAN documents
+              {dict.customer.subtitle}
             </p>
           </div>
 
@@ -421,7 +423,7 @@ export default function CustomersPage() {
               className="px-3.5 py-2 text-xs font-bold bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs"
             >
               <Printer className="w-4 h-4 text-rose-600" />
-              <span>Export PDF 📄</span>
+              <span>{isMarathi ? 'अहवाल (PDF) 📄' : 'Export PDF 📄'}</span>
             </button>
 
             <button
@@ -429,7 +431,7 @@ export default function CustomersPage() {
               className="px-3.5 py-2 text-xs font-bold bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-xl flex items-center gap-1.5 transition-colors shadow-2xs"
             >
               <FileSpreadsheet className="w-4 h-4 text-emerald-600" />
-              <span>Export Excel 📊</span>
+              <span>{dict.reports.exportExcel}</span>
             </button>
 
             <button
@@ -437,7 +439,7 @@ export default function CustomersPage() {
               className="px-4 py-2 text-xs font-bold bg-amber-500 text-white rounded-xl shadow-md gold-glow hover:bg-amber-600 flex items-center gap-1.5"
             >
               <Plus className="w-4 h-4" />
-              <span>Add New Customer</span>
+              <span>{dict.customer.addCustomer}</span>
             </button>
           </div>
         </div>
@@ -448,7 +450,7 @@ export default function CustomersPage() {
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
               <input
                 type="text"
-                placeholder="Search by customer name, mobile, or Aadhaar..."
+                placeholder={dict.customer.searchPlaceholder}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-xl focus:outline-none focus:border-amber-500 font-medium"
@@ -458,9 +460,9 @@ export default function CustomersPage() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-4">
             {loading ? (
-              <div className="col-span-full py-8 text-center text-slate-400">Loading customers...</div>
+              <div className="col-span-full py-8 text-center text-slate-400">{dict.common.loading}</div>
             ) : filtered.length === 0 ? (
-              <div className="col-span-full py-8 text-center text-slate-400">No customers found.</div>
+              <div className="col-span-full py-8 text-center text-slate-400">{dict.common.noRecords}</div>
             ) : (
               filtered.map((c) => (
                 <div key={c.id} className="bg-slate-50/50 rounded-2xl border border-slate-200/80 p-4 space-y-3">
@@ -469,7 +471,7 @@ export default function CustomersPage() {
                     <div
                       onClick={() => handleOpenProfile(c)}
                       className="w-12 h-12 rounded-full bg-slate-800 border-2 border-amber-400 overflow-hidden shrink-0 flex items-center justify-center font-bold text-amber-300 text-sm cursor-pointer hover:ring-4 hover:ring-amber-400/30 transition-all"
-                      title="Click to view & edit customer profile"
+                      title={isMarathi ? 'ग्राहक प्रोफाइल पाहण्यासाठी व संपादित करण्यासाठी क्लिक करा' : 'Click to view & edit customer profile'}
                     >
                       {c.photo_url ? (
                         <img src={c.photo_url} alt={c.full_name} className="w-full h-full object-cover" />
@@ -482,7 +484,7 @@ export default function CustomersPage() {
                       <h3
                         onClick={() => handleOpenProfile(c)}
                         className="font-bold text-slate-900 text-sm truncate cursor-pointer hover:text-amber-600 hover:underline transition-colors flex items-center gap-1"
-                        title="Click to view & edit customer profile"
+                        title={isMarathi ? 'ग्राहक प्रोफाइल पाहण्यासाठी व संपादित करण्यासाठी क्लिक करा' : 'Click to view & edit customer profile'}
                       >
                         <span>{c.full_name}</span>
                         <Eye className="w-3 h-3 text-slate-400 opacity-60" />
@@ -494,17 +496,17 @@ export default function CustomersPage() {
                     </div>
 
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                      {c.status}
+                      {isMarathi ? (c.status === 'Active' ? 'सक्रिय' : c.status) : c.status}
                     </span>
                   </div>
 
                   <div className="text-xs space-y-1.5 text-slate-600 border-t border-slate-200/60 pt-2.5 font-medium">
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-400">Aadhaar #:</span>
+                      <span className="text-slate-400">{isMarathi ? 'आधार क्र.:' : 'Aadhaar #:'}</span>
                       <span className="font-semibold text-slate-800">{c.aadhaar_number || 'N/A'}</span>
                     </div>
                     <div className="flex justify-between items-center">
-                      <span className="text-slate-400">PAN #:</span>
+                      <span className="text-slate-400">{isMarathi ? 'पॅन क्र.:' : 'PAN #:'}</span>
                       <span className="font-semibold text-slate-800">{c.pan_number || 'N/A'}</span>
                     </div>
                   </div>
@@ -512,52 +514,48 @@ export default function CustomersPage() {
                   {/* Document Thumbnails Preview Row */}
                   <div className="pt-2 border-t border-slate-200/60 space-y-1.5">
                     <div className="flex items-center justify-between text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">
-                      <span>KYC Documents:</span>
+                      <span>{dict.customer.kycDocumentsLabel}</span>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-1.5">
                       {c.aadhaar_url && (
                         <button
                           type="button"
-                          onClick={() => setPreviewDocModal({ title: `${c.full_name} - Aadhaar Front`, url: c.aadhaar_url! })}
+                          onClick={() => setPreviewDocModal({ title: `${c.full_name} - ${dict.customer.aadhaarFront.replace(/\s*\*/g, '')}`, url: c.aadhaar_url! })}
                           className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-950 text-[10px] font-extrabold rounded-lg inline-flex items-center gap-1 border border-amber-300/80 transition-colors shrink-0 shadow-2xs"
-                          title="Click Eye to view Aadhaar Front"
                         >
                           <Eye className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                          <span className="whitespace-nowrap">Aadhaar Front</span>
+                          <span className="whitespace-nowrap">{dict.customer.aadhaarFront.replace(/\s*\*/g, '')}</span>
                         </button>
                       )}
                       {c.aadhaar_back_url && (
                         <button
                           type="button"
-                          onClick={() => setPreviewDocModal({ title: `${c.full_name} - Aadhaar Back`, url: c.aadhaar_back_url! })}
+                          onClick={() => setPreviewDocModal({ title: `${c.full_name} - ${dict.customer.aadhaarBack.replace(/\s*\*/g, '')}`, url: c.aadhaar_back_url! })}
                           className="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-950 text-[10px] font-extrabold rounded-lg inline-flex items-center gap-1 border border-amber-300/80 transition-colors shrink-0 shadow-2xs"
-                          title="Click Eye to view Aadhaar Back"
                         >
                           <Eye className="w-3.5 h-3.5 text-amber-700 shrink-0" />
-                          <span className="whitespace-nowrap">Aadhaar Back</span>
+                          <span className="whitespace-nowrap">{dict.customer.aadhaarBack.replace(/\s*\*/g, '')}</span>
                         </button>
                       )}
                       {c.pan_url && (
                         <button
                           type="button"
-                          onClick={() => setPreviewDocModal({ title: `${c.full_name} - PAN Card`, url: c.pan_url! })}
+                          onClick={() => setPreviewDocModal({ title: `${c.full_name} - ${dict.customer.panCard}`, url: c.pan_url! })}
                           className="px-2.5 py-1 bg-blue-100 hover:bg-blue-200 text-blue-950 text-[10px] font-extrabold rounded-lg inline-flex items-center gap-1 border border-blue-300/80 transition-colors shrink-0 shadow-2xs"
-                          title="Click Eye to view PAN Card"
                         >
                           <Eye className="w-3.5 h-3.5 text-blue-700 shrink-0" />
-                          <span className="whitespace-nowrap">PAN Card</span>
+                          <span className="whitespace-nowrap">{dict.customer.panCard}</span>
                         </button>
                       )}
                       {c.photo_url && (
                         <button
                           type="button"
-                          onClick={() => setPreviewDocModal({ title: `${c.full_name} - Photo`, url: c.photo_url! })}
+                          onClick={() => setPreviewDocModal({ title: `${c.full_name} - ${dict.customer.photo}`, url: c.photo_url! })}
                           className="px-2.5 py-1 bg-emerald-100 hover:bg-emerald-200 text-emerald-950 text-[10px] font-extrabold rounded-lg inline-flex items-center gap-1 border border-emerald-300/80 transition-colors shrink-0 shadow-2xs"
-                          title="Click Eye to view Photo"
                         >
                           <Eye className="w-3.5 h-3.5 text-emerald-700 shrink-0" />
-                          <span className="whitespace-nowrap">Photo</span>
+                          <span className="whitespace-nowrap">{dict.customer.photo}</span>
                         </button>
                       )}
                     </div>
@@ -573,7 +571,7 @@ export default function CustomersPage() {
                       className="w-full py-1.5 px-3 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs gold-glow transition-all"
                     >
                       <Coins className="w-3.5 h-3.5" />
-                      <span>Issue Gold Loan</span>
+                      <span>{dict.customer.issueGoldLoanBtn}</span>
                     </button>
                   </div>
                 </div>
@@ -598,7 +596,7 @@ export default function CustomersPage() {
             <div className="flex items-center justify-between pb-4 border-b border-slate-100">
               <div className="flex items-center gap-2 text-amber-600">
                 <Users className="w-5 h-5" />
-                <h3 className="text-base font-bold text-slate-900">Register New Borrower Customer</h3>
+                <h3 className="text-base font-bold text-slate-900">{dict.customer.registerNewBorrowerModalTitle}</h3>
               </div>
               <button
                 disabled={submittingCustomer}
@@ -615,17 +613,17 @@ export default function CustomersPage() {
               {/* Section 1: Personal Information */}
               <div className="space-y-3">
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
-                  1. Basic Details
+                  {dict.customer.basicDetails}
                 </span>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Full Customer Name <span className="text-rose-500">*</span>
+                      {dict.customer.customerName} <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="text"
-                      placeholder="e.g. Ramesh Shah (letters only)"
+                      placeholder={dict.customer.namePlaceholder}
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value.replace(/[^a-zA-Z\s]/g, ''))}
                       className="w-full min-h-[44px] px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none transition-shadow"
@@ -635,57 +633,63 @@ export default function CustomersPage() {
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Mobile Phone Number <span className="text-rose-500">*</span>
+                      {dict.customer.mobileNumber} <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="text"
-                      placeholder="e.g. 9876543210 (10 digits)"
+                      placeholder={dict.customer.mobilePlaceholder}
                       maxLength={10}
                       value={mobile}
                       onChange={(e) => setMobile(e.target.value.replace(/\D/g, '').slice(0, 10))}
                       className="w-full min-h-[44px] px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none transition-shadow"
                       required
                     />
-                    <p className="text-[10px] text-slate-400 mt-0.5">Exactly 10 numeric digits only</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      {isMarathi ? 'केवळ १० अंकी मोबाईल क्रमांक' : 'Exactly 10 numeric digits only'}
+                    </p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 mb-1">
-                      Aadhaar Card Number <span className="text-rose-500">*</span>
+                      {dict.customer.aadhaarNumber} <span className="text-rose-500">*</span>
                     </label>
                     <input
                       type="text"
-                      placeholder="XXXX XXXX XXXX (12 digits)"
+                      placeholder={dict.customer.aadhaarPlaceholder}
                       maxLength={14}
                       value={aadhaar ? aadhaar.replace(/(\d{4})(\d{4})?(\d{4})?/, (_, p1, p2, p3) => [p1, p2, p3].filter(Boolean).join(' ')) : ''}
                       onChange={(e) => setAadhaar(e.target.value.replace(/\D/g, '').slice(0, 12))}
                       className="w-full min-h-[44px] px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none transition-shadow"
                       required
                     />
-                    <p className="text-[10px] text-amber-700 font-bold mt-0.5">Format: XXXX XXXX XXXX (12 digits)</p>
+                    <p className="text-[10px] text-amber-700 font-bold mt-0.5">
+                      {isMarathi ? 'नमुना: XXXX XXXX XXXX (१२ अंकी)' : 'Format: XXXX XXXX XXXX (12 digits)'}
+                    </p>
                   </div>
 
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 mb-1">PAN Card Number</label>
+                    <label className="block text-xs font-bold text-slate-700 mb-1">{dict.customer.panNumber}</label>
                     <input
                       type="text"
-                      placeholder="ABCDE1234F"
+                      placeholder={dict.customer.panPlaceholder}
                       maxLength={10}
                       value={pan}
                       onChange={(e) => setPan(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10))}
                       className="w-full min-h-[44px] px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none transition-shadow"
                     />
-                    <p className="text-[10px] text-slate-400 mt-0.5">Format: ABCDE1234F (5 letters, 4 digits, 1 letter)</p>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      {isMarathi ? 'नमुना: ABCDE1234F (५ अक्षरे, ४ अंक, १ अक्षर)' : 'Format: ABCDE1234F (5 letters, 4 digits, 1 letter)'}
+                    </p>
                   </div>
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 mb-1">Residential Address</label>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">{dict.customer.address}</label>
                   <textarea
                     rows={2}
-                    placeholder="Full street address..."
+                    placeholder={dict.customer.addressPlaceholder}
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
                     className="w-full min-h-[50px] px-3.5 py-2.5 border border-slate-300 rounded-xl text-sm font-semibold focus:ring-2 focus:ring-amber-500 focus:outline-none transition-shadow"
@@ -699,18 +703,18 @@ export default function CustomersPage() {
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-amber-700 uppercase tracking-wider flex items-center gap-1.5">
                     <Camera className="w-4 h-4" />
-                    <span>2. Mandatory Camera Photo & KYC Documents</span>
+                    <span>{dict.customer.mandatoryCameraKyc}</span>
                   </span>
                   <span className="text-[10px] font-bold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full flex items-center gap-1">
                     <Zap className="w-3 h-3 text-emerald-600" />
-                    <span>Auto 90% WebP Compression</span>
+                    <span>{dict.customer.autoWebpCompression}</span>
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {/* Customer Photo Mandatory */}
                   <DocumentCameraUpload
-                    label="Photo Upload *"
+                    label={dict.customer.photoUpload}
                     required={true}
                     value={photoUrl}
                     onChange={setPhotoUrl}
@@ -719,7 +723,7 @@ export default function CustomersPage() {
 
                   {/* Aadhaar Card Front Mandatory */}
                   <DocumentCameraUpload
-                    label="Aadhaar Card Front *"
+                    label={dict.customer.aadhaarFront}
                     required={true}
                     value={aadhaarFrontUrl}
                     onChange={setAadhaarFrontUrl}
@@ -727,7 +731,7 @@ export default function CustomersPage() {
 
                   {/* Aadhaar Card Back Mandatory */}
                   <DocumentCameraUpload
-                    label="Aadhaar Card Back *"
+                    label={dict.customer.aadhaarBack}
                     required={true}
                     value={aadhaarBackUrl}
                     onChange={setAadhaarBackUrl}
@@ -735,7 +739,7 @@ export default function CustomersPage() {
 
                   {/* PAN Card Optional */}
                   <DocumentCameraUpload
-                    label="PAN Card (Optional)"
+                    label={dict.customer.panCardOptional}
                     required={false}
                     value={panUrl}
                     onChange={setPanUrl}
@@ -757,7 +761,7 @@ export default function CustomersPage() {
                       : 'text-slate-600 hover:bg-slate-100'
                   }`}
                 >
-                  Cancel
+                  {dict.common.cancel}
                 </button>
                 <button
                   type="submit"
@@ -784,9 +788,9 @@ export default function CustomersPage() {
                       <span>{submittingStepText}</span>
                     </>
                   ) : submittingError ? (
-                    <span>Retry Saving Customer</span>
+                    <span>{isMarathi ? 'पुन्हा प्रयत्न करा' : 'Retry Saving Customer'}</span>
                   ) : (
-                    <span>Save Customer & Compressed KYC</span>
+                    <span>{dict.customer.saveCustomerKycBtn}</span>
                   )}
                 </button>
               </div>
@@ -815,13 +819,13 @@ export default function CustomersPage() {
                 className="px-4 py-1.5 bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-extrabold rounded-xl shadow-md flex items-center gap-1.5"
               >
                 <Download className="w-4 h-4" />
-                <span>Download Document File</span>
+                <span>{isMarathi ? 'कागदपत्र डाउनलोड करा' : 'Download Document File'}</span>
               </button>
               <button
                 onClick={() => setPreviewDocModal(null)}
                 className="px-4 py-1.5 bg-slate-800 text-xs font-bold rounded-xl text-white hover:bg-slate-700"
               >
-                Close Preview
+                {dict.common.close}
               </button>
             </div>
           </div>
@@ -845,11 +849,12 @@ export default function CustomersPage() {
                   <div className="flex items-center gap-2">
                     <h3 className="text-base font-extrabold text-slate-900">{selectedCustomer.full_name}</h3>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">
-                      {selectedCustomer.status}
+                      {isMarathi ? (selectedCustomer.status === 'Active' ? 'सक्रिय' : selectedCustomer.status) : selectedCustomer.status}
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-500 font-semibold">
-                    KYC Verified • Registered on {new Date(selectedCustomer.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                    {isMarathi ? 'केवायसी पडताळणी पूर्ण • नोंदणी: ' : 'KYC Verified • Registered on '}
+                    {new Date(selectedCustomer.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                   </p>
                 </div>
               </div>
@@ -862,7 +867,9 @@ export default function CustomersPage() {
             <div className="p-3 bg-amber-500/10 border border-amber-400/30 rounded-xl text-amber-950 text-xs font-semibold flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0" />
               <span>
-                KYC Security Policy: Customer Name, Aadhaar & PAN details are <strong>🔒 Locked & Non-Editable</strong>. Only <strong>Mobile Number ✏️</strong> can be updated below.
+                {isMarathi
+                  ? 'सुरक्षा धोरण: ग्राहकाचे नाव, आधार व पॅन तपशील 🔒 लॉक आहेत. केवळ मोबाईल क्रमांक ✏️ संपादित करता येईल.'
+                  : 'KYC Security Policy: Customer Name, Aadhaar & PAN details are 🔒 Locked & Non-Editable. Only Mobile Number ✏️ can be updated below.'}
               </span>
             </div>
 
@@ -872,9 +879,11 @@ export default function CustomersPage() {
                 <label className="block text-xs font-bold text-amber-400 flex items-center justify-between">
                   <span className="flex items-center gap-1.5">
                     <Phone className="w-4 h-4 text-amber-400" />
-                    <span>Mobile Phone Number (EDITABLE ✏️)</span>
+                    <span>{isMarathi ? 'मोबाईल फोन क्रमांक (संपादनयोग्य ✏️)' : 'Mobile Phone Number (EDITABLE ✏️)'}</span>
                   </span>
-                  <span className="text-[10px] text-slate-400">Shop Owner Edit Access</span>
+                  <span className="text-[10px] text-slate-400">
+                    {isMarathi ? 'दुकानदार संपादन अधिकार' : 'Shop Owner Edit Access'}
+                  </span>
                 </label>
 
                 <div className="flex items-center gap-2 pt-1">
@@ -882,17 +891,16 @@ export default function CustomersPage() {
                     type="text"
                     value={editableMobile}
                     onChange={(e) => setEditableMobile(e.target.value)}
-                    className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-sm font-extrabold text-emerald-300 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    placeholder="+91 98XXX XXXXX"
+                    className="flex-1 px-3 py-2 bg-slate-800 border border-slate-700 rounded-xl text-white font-mono text-xs focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                    placeholder="10 digit mobile"
                   />
                   <button
                     type="button"
+                    disabled={savingMobile || editableMobile === selectedCustomer.mobile_number}
                     onClick={handleSaveMobile}
-                    disabled={savingMobile}
-                    className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl text-xs flex items-center gap-1.5 shadow-md gold-glow"
+                    className="px-4 py-2 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-slate-950 font-bold rounded-xl text-xs transition-colors"
                   >
-                    <Save className="w-4 h-4" />
-                    <span>{savingMobile ? 'Saving...' : 'Save Mobile'}</span>
+                    {savingMobile ? (isMarathi ? 'जतन करत आहे...' : 'Saving...') : (isMarathi ? 'मोबाईल अपडेट करा' : 'Update Mobile')}
                   </button>
                 </div>
               </div>
@@ -902,7 +910,7 @@ export default function CustomersPage() {
                 {/* Full Name */}
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
                   <div className="flex justify-between text-slate-400 font-bold mb-1">
-                    <span>Full Customer Name</span>
+                    <span>{dict.customer.customerName}</span>
                     <Lock className="w-3.5 h-3.5 text-slate-400" />
                   </div>
                   <strong className="text-slate-900 text-sm">{selectedCustomer.full_name}</strong>
@@ -911,7 +919,7 @@ export default function CustomersPage() {
                 {/* Aadhaar Number */}
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
                   <div className="flex justify-between text-slate-400 font-bold mb-1">
-                    <span>Aadhaar Card #</span>
+                    <span>{isMarathi ? 'आधार कार्ड क्र.' : 'Aadhaar Card #'}</span>
                     <Lock className="w-3.5 h-3.5 text-slate-400" />
                   </div>
                   <strong className="text-slate-900 text-sm">{selectedCustomer.aadhaar_number || 'N/A'}</strong>
@@ -920,7 +928,7 @@ export default function CustomersPage() {
                 {/* PAN Number */}
                 <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
                   <div className="flex justify-between text-slate-400 font-bold mb-1">
-                    <span>PAN Card #</span>
+                    <span>{isMarathi ? 'पॅन कार्ड क्र.' : 'PAN Card #'}</span>
                     <Lock className="w-3.5 h-3.5 text-slate-400" />
                   </div>
                   <strong className="text-slate-900 text-sm">{selectedCustomer.pan_number || 'N/A'}</strong>
@@ -930,16 +938,16 @@ export default function CustomersPage() {
               {/* Address */}
               <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 space-y-1">
                 <div className="flex justify-between text-slate-400 font-bold">
-                  <span>Residential Address</span>
+                  <span>{dict.customer.address}</span>
                   <Lock className="w-3.5 h-3.5 text-slate-400" />
                 </div>
-                <p className="text-slate-800 font-semibold">{selectedCustomer.address || 'Address on file'}, {selectedCustomer.city || 'Mumbai'}</p>
+                <p className="text-slate-800 font-semibold">{selectedCustomer.address || (isMarathi ? 'पत्ता नोंदवला नाही' : 'Address on file')}, {selectedCustomer.city || 'Mumbai'}</p>
               </div>
 
               {/* Uploaded WebP KYC Documents Section */}
               <div className="space-y-2">
                 <span className="font-bold text-slate-800 uppercase tracking-wider text-[11px] block">
-                  Uploaded WebP Compressed KYC Documents & Photo
+                  {isMarathi ? 'अपलोड केलेले WebP कॉम्प्रेस्ड केवायसी कागदपत्रे व फोटो' : 'Uploaded WebP Compressed KYC Documents & Photo'}
                 </span>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -948,16 +956,16 @@ export default function CustomersPage() {
                     <div className="flex items-center justify-between gap-1 min-w-0">
                       <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5 min-w-0 truncate">
                         <Camera className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span className="truncate">Passport Size Photograph</span>
+                        <span className="truncate">{isMarathi ? 'पासपोर्ट आकाराचे छायाचित्र' : 'Passport Size Photograph'}</span>
                       </span>
                       <div className="flex items-center gap-1 shrink-0">
                         <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[9px] font-black">WebP 90%</span>
                         {selectedCustomer.photo_url && (
                           <button
                             type="button"
-                            onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} Passport Photo`, url: selectedCustomer.photo_url! })}
+                            onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} ${isMarathi ? 'छायाचित्र' : 'Passport Photo'}`, url: selectedCustomer.photo_url! })}
                             className="p-1 bg-white hover:bg-amber-50 text-amber-700 rounded-md border border-amber-200 shadow-2xs transition-colors"
-                            title="View Document Image"
+                            title={isMarathi ? 'कागदपत्र प्रतिमा पहा' : 'View Document Image'}
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
@@ -970,16 +978,16 @@ export default function CustomersPage() {
                         <img src={selectedCustomer.photo_url} alt="Passport Photo" className="h-full w-auto object-cover" />
                         <button
                           type="button"
-                          onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} Passport Photo`, url: selectedCustomer.photo_url! })}
+                          onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} ${isMarathi ? 'छायाचित्र' : 'Passport Photo'}`, url: selectedCustomer.photo_url! })}
                           className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1 text-white text-xs font-extrabold"
                         >
                           <Eye className="w-4 h-4 text-amber-400" />
-                          <span>Click to View</span>
+                          <span>{isMarathi ? 'पाहण्यासाठी क्लिक करा' : 'Click to View'}</span>
                         </button>
                       </div>
                     ) : (
                       <div className="h-28 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-xs font-medium">
-                        No photo captured
+                        {isMarathi ? 'फोटो उपलब्ध नाही' : 'No photo captured'}
                       </div>
                     )}
 
@@ -987,11 +995,11 @@ export default function CustomersPage() {
                       <div className="grid grid-cols-2 gap-1.5 pt-1">
                         <button
                           type="button"
-                          onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} Passport Photo`, url: selectedCustomer.photo_url! })}
+                          onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} ${isMarathi ? 'छायाचित्र' : 'Passport Photo'}`, url: selectedCustomer.photo_url! })}
                           className="py-1.5 px-2 bg-white border border-slate-200 hover:border-amber-400 text-slate-700 font-bold text-[11px] rounded-lg flex items-center justify-center gap-1 transition-colors"
                         >
                           <Eye className="w-3.5 h-3.5 text-amber-600" />
-                          <span>View Photo</span>
+                          <span>{isMarathi ? 'फोटो पहा' : 'View Photo'}</span>
                         </button>
 
                         <button
@@ -1000,7 +1008,7 @@ export default function CustomersPage() {
                           className="py-1.5 px-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] rounded-lg flex items-center justify-center gap-1 shadow-2xs transition-colors"
                         >
                           <Download className="w-3.5 h-3.5" />
-                          <span>Download</span>
+                          <span>{dict.common.download}</span>
                         </button>
                       </div>
                     )}
@@ -1011,16 +1019,16 @@ export default function CustomersPage() {
                     <div className="flex items-center justify-between gap-1 min-w-0">
                       <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5 min-w-0 truncate">
                         <FileCheck className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span className="truncate">Aadhaar Card (Front)</span>
+                        <span className="truncate">{isMarathi ? 'आधार कार्ड (पुढील बाजू)' : 'Aadhaar Card (Front)'}</span>
                       </span>
                       <div className="flex items-center gap-1 shrink-0">
                         <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[9px] font-black">WebP 90%</span>
                         {selectedCustomer.aadhaar_url && (
                           <button
                             type="button"
-                            onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} Aadhaar Front`, url: selectedCustomer.aadhaar_url! })}
+                            onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} ${isMarathi ? 'आधार पुढील बाजू' : 'Aadhaar Front'}`, url: selectedCustomer.aadhaar_url! })}
                             className="p-1 bg-white hover:bg-amber-50 text-amber-700 rounded-md border border-amber-200 shadow-2xs transition-colors"
-                            title="View Document Image"
+                            title={isMarathi ? 'कागदपत्र प्रतिमा पहा' : 'View Document Image'}
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
@@ -1033,16 +1041,16 @@ export default function CustomersPage() {
                         <img src={selectedCustomer.aadhaar_url} alt="Aadhaar Front" className="h-full w-auto object-cover" />
                         <button
                           type="button"
-                          onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} Aadhaar Front`, url: selectedCustomer.aadhaar_url! })}
+                          onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} ${isMarathi ? 'आधार पुढील बाजू' : 'Aadhaar Front'}`, url: selectedCustomer.aadhaar_url! })}
                           className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1 text-white text-xs font-extrabold"
                         >
                           <Eye className="w-4 h-4 text-amber-400" />
-                          <span>Click to View</span>
+                          <span>{isMarathi ? 'पाहण्यासाठी क्लिक करा' : 'Click to View'}</span>
                         </button>
                       </div>
                     ) : (
                       <div className="h-28 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-xs font-medium">
-                        No document uploaded
+                        {isMarathi ? 'कागदपत्र अपलोड केले नाही' : 'No document uploaded'}
                       </div>
                     )}
 
@@ -1050,11 +1058,11 @@ export default function CustomersPage() {
                       <div className="grid grid-cols-2 gap-1.5 pt-1">
                         <button
                           type="button"
-                          onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} Aadhaar Front`, url: selectedCustomer.aadhaar_url! })}
+                          onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} ${isMarathi ? 'आधार पुढील बाजू' : 'Aadhaar Front'}`, url: selectedCustomer.aadhaar_url! })}
                           className="py-1.5 px-2 bg-white border border-slate-200 hover:border-amber-400 text-slate-700 font-bold text-[11px] rounded-lg flex items-center justify-center gap-1 transition-colors"
                         >
                           <Eye className="w-3.5 h-3.5 text-amber-600" />
-                          <span>View Doc</span>
+                          <span>{isMarathi ? 'कागदपत्र पहा' : 'View Doc'}</span>
                         </button>
 
                         <button
@@ -1063,7 +1071,7 @@ export default function CustomersPage() {
                           className="py-1.5 px-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] rounded-lg flex items-center justify-center gap-1 shadow-2xs transition-colors"
                         >
                           <Download className="w-3.5 h-3.5" />
-                          <span>Download</span>
+                          <span>{dict.common.download}</span>
                         </button>
                       </div>
                     )}
@@ -1074,16 +1082,16 @@ export default function CustomersPage() {
                     <div className="flex items-center justify-between gap-1 min-w-0">
                       <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5 min-w-0 truncate">
                         <FileCheck className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span className="truncate">Aadhaar Card (Back)</span>
+                        <span className="truncate">{isMarathi ? 'आधार कार्ड (मागील बाजू)' : 'Aadhaar Card (Back)'}</span>
                       </span>
                       <div className="flex items-center gap-1 shrink-0">
                         <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[9px] font-black">WebP 90%</span>
                         {selectedCustomer.aadhaar_back_url && (
                           <button
                             type="button"
-                            onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} Aadhaar Back`, url: selectedCustomer.aadhaar_back_url! })}
+                            onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} ${isMarathi ? 'आधार मागील बाजू' : 'Aadhaar Back'}`, url: selectedCustomer.aadhaar_back_url! })}
                             className="p-1 bg-white hover:bg-amber-50 text-amber-700 rounded-md border border-amber-200 shadow-2xs transition-colors"
-                            title="View Document Image"
+                            title={isMarathi ? 'कागदपत्र प्रतिमा पहा' : 'View Document Image'}
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
@@ -1096,16 +1104,16 @@ export default function CustomersPage() {
                         <img src={selectedCustomer.aadhaar_back_url} alt="Aadhaar Back" className="h-full w-auto object-cover" />
                         <button
                           type="button"
-                          onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} Aadhaar Back`, url: selectedCustomer.aadhaar_back_url! })}
+                          onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} ${isMarathi ? 'आधार मागील बाजू' : 'Aadhaar Back'}`, url: selectedCustomer.aadhaar_back_url! })}
                           className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1 text-white text-xs font-extrabold"
                         >
                           <Eye className="w-4 h-4 text-amber-400" />
-                          <span>Click to View</span>
+                          <span>{isMarathi ? 'पाहण्यासाठी क्लिक करा' : 'Click to View'}</span>
                         </button>
                       </div>
                     ) : (
                       <div className="h-28 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-xs font-medium">
-                        No document uploaded
+                        {isMarathi ? 'कागदपत्र अपलोड केले नाही' : 'No document uploaded'}
                       </div>
                     )}
 
@@ -1113,11 +1121,11 @@ export default function CustomersPage() {
                       <div className="grid grid-cols-2 gap-1.5 pt-1">
                         <button
                           type="button"
-                          onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} Aadhaar Back`, url: selectedCustomer.aadhaar_back_url! })}
+                          onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} ${isMarathi ? 'आधार मागील बाजू' : 'Aadhaar Back'}`, url: selectedCustomer.aadhaar_back_url! })}
                           className="py-1.5 px-2 bg-white border border-slate-200 hover:border-amber-400 text-slate-700 font-bold text-[11px] rounded-lg flex items-center justify-center gap-1 transition-colors"
                         >
                           <Eye className="w-3.5 h-3.5 text-amber-600" />
-                          <span>View Doc</span>
+                          <span>{isMarathi ? 'कागदपत्र पहा' : 'View Doc'}</span>
                         </button>
 
                         <button
@@ -1126,7 +1134,7 @@ export default function CustomersPage() {
                           className="py-1.5 px-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] rounded-lg flex items-center justify-center gap-1 shadow-2xs transition-colors"
                         >
                           <Download className="w-3.5 h-3.5" />
-                          <span>Download</span>
+                          <span>{dict.common.download}</span>
                         </button>
                       </div>
                     )}
@@ -1137,16 +1145,16 @@ export default function CustomersPage() {
                     <div className="flex items-center justify-between gap-1 min-w-0">
                       <span className="text-xs font-bold text-slate-900 flex items-center gap-1.5 min-w-0 truncate">
                         <FileCheck className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                        <span className="truncate">PAN Card</span>
+                        <span className="truncate">{dict.customer.panCard}</span>
                       </span>
                       <div className="flex items-center gap-1 shrink-0">
                         <span className="px-1.5 py-0.5 rounded-md bg-amber-100 text-amber-800 text-[9px] font-black">WebP 90%</span>
                         {selectedCustomer.pan_url && (
                           <button
                             type="button"
-                            onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} PAN Card`, url: selectedCustomer.pan_url! })}
+                            onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} - ${dict.customer.panCard}`, url: selectedCustomer.pan_url! })}
                             className="p-1 bg-white hover:bg-amber-50 text-amber-700 rounded-md border border-amber-200 shadow-2xs transition-colors"
-                            title="View Document Image"
+                            title={isMarathi ? 'कागदपत्र प्रतिमा पहा' : 'View Document Image'}
                           >
                             <Eye className="w-3.5 h-3.5" />
                           </button>
@@ -1159,16 +1167,16 @@ export default function CustomersPage() {
                         <img src={selectedCustomer.pan_url} alt="PAN Card" className="h-full w-auto object-cover" />
                         <button
                           type="button"
-                          onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} PAN Card`, url: selectedCustomer.pan_url! })}
+                          onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} - ${dict.customer.panCard}`, url: selectedCustomer.pan_url! })}
                           className="absolute inset-0 bg-slate-950/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1 text-white text-xs font-extrabold"
                         >
                           <Eye className="w-4 h-4 text-amber-400" />
-                          <span>Click to View</span>
+                          <span>{isMarathi ? 'पाहण्यासाठी क्लिक करा' : 'Click to View'}</span>
                         </button>
                       </div>
                     ) : (
                       <div className="h-28 bg-slate-100 rounded-lg flex items-center justify-center text-slate-400 text-xs font-medium">
-                        No document uploaded
+                        {isMarathi ? 'कागदपत्र अपलोड केले नाही' : 'No document uploaded'}
                       </div>
                     )}
 
@@ -1176,11 +1184,11 @@ export default function CustomersPage() {
                       <div className="grid grid-cols-2 gap-1.5 pt-1">
                         <button
                           type="button"
-                          onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} PAN Card`, url: selectedCustomer.pan_url! })}
+                          onClick={() => setPreviewDocModal({ title: `${selectedCustomer.full_name} - ${dict.customer.panCard}`, url: selectedCustomer.pan_url! })}
                           className="py-1.5 px-2 bg-white border border-slate-200 hover:border-amber-400 text-slate-700 font-bold text-[11px] rounded-lg flex items-center justify-center gap-1 transition-colors"
                         >
                           <Eye className="w-3.5 h-3.5 text-amber-600" />
-                          <span>View Doc</span>
+                          <span>{isMarathi ? 'कागदपत्र पहा' : 'View Doc'}</span>
                         </button>
 
                         <button
@@ -1189,7 +1197,7 @@ export default function CustomersPage() {
                           className="py-1.5 px-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-[11px] rounded-lg flex items-center justify-center gap-1 shadow-2xs transition-colors"
                         >
                           <Download className="w-3.5 h-3.5" />
-                          <span>Download</span>
+                          <span>{dict.common.download}</span>
                         </button>
                       </div>
                     )}
@@ -1210,7 +1218,11 @@ export default function CustomersPage() {
                 className="px-4 py-2 text-xs font-bold bg-amber-500 text-slate-950 rounded-xl shadow-md gold-glow hover:bg-amber-600 flex items-center gap-1.5"
               >
                 <Coins className="w-4 h-4" />
-                <span>Issue Gold Loan to {selectedCustomer.full_name.split(' ')[0]}</span>
+                <span>
+                  {isMarathi
+                    ? `${selectedCustomer.full_name.split(' ')[0]} यांना सुवर्ण कर्ज द्या`
+                    : `Issue Gold Loan to ${selectedCustomer.full_name.split(' ')[0]}`}
+                </span>
               </button>
 
               <button
@@ -1218,7 +1230,7 @@ export default function CustomersPage() {
                 onClick={() => setProfileModalOpen(false)}
                 className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
               >
-                Close Profile
+                {isMarathi ? 'प्रोफाइल बंद करा' : 'Close Profile'}
               </button>
             </div>
           </div>

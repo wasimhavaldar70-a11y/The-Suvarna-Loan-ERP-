@@ -2,6 +2,7 @@
 
 // ========================================================
 // SuvarnaLoan ERP - Standalone Gold Valuation Engine Tool
+// Supports English & Bank-Grade Marathi Localization
 // Location: src/app/dashboard/valuation/page.tsx
 // ========================================================
 
@@ -11,16 +12,18 @@ import DashboardLayout from '../../../components/DashboardLayout';
 import { db } from '../../../lib/supabase/supabaseDb';
 import { getSessionUser } from '../../../lib/supabase/client';
 import { calculateGoldValuation } from '../../../lib/goldValuationEngine';
-import { formatCurrency } from '../../../lib/utils';
-
+import { formatCurrency, formatWeight } from '../../../lib/utils';
 import { fetchLiveMetalRates } from '../../../lib/liveMetalRatesApi';
+import { useTranslation } from '../../../providers/LanguageProvider';
 
 export default function ValuationPage() {
+  const { dict, language, isMarathi } = useTranslation();
+
   const [metalType, setMetalType] = useState<'Gold' | 'Silver'>('Gold');
   const [rate24k, setRate24k] = useState(7650);
   const [silverRatePerGram, setSilverRatePerGram] = useState(95);
-  const [grossWeight, setGrossWeight] = useState(25.5);
-  const [stoneWeight, setStoneWeight] = useState(1.5);
+  const [grossWeight, setGrossWeight] = useState<number | string>('');
+  const [stoneWeight, setStoneWeight] = useState<number | string>('');
   const [karat, setKarat] = useState('22K (91.6%)');
   const [ltv, setLtv] = useState(75);
   const [loadingLive, setLoadingLive] = useState(false);
@@ -54,8 +57,8 @@ export default function ValuationPage() {
 
   const result = calculateGoldValuation({
     metalType,
-    grossWeightGrams: grossWeight,
-    stoneWeightGrams: stoneWeight,
+    grossWeightGrams: Number(grossWeight) || 0,
+    stoneWeightGrams: Number(stoneWeight) || 0,
     purityKarat: karat,
     goldRatePerGram24K: rate24k,
     silverRatePerGram,
@@ -64,14 +67,17 @@ export default function ValuationPage() {
 
   return (
     <DashboardLayout>
-      <div className="space-y-6 max-w-4xl mx-auto">
+      <div className="space-y-6 max-w-4xl mx-auto font-sans">
         <div>
           <h1 className="text-xl md:text-2xl font-extrabold text-slate-900 tracking-tight flex items-center gap-2">
             <Calculator className="w-6 h-6 text-amber-600" />
-            <span>Precision Gold & Silver Loan Valuation Engine</span>
+            <span>{isMarathi ? 'अचूक सोने व चांदी तारण मूल्यांकन कॅल्क्युलेटर' : 'Precision Gold & Silver Loan Valuation Engine'}</span>
           </h1>
           <p className="text-xs text-slate-500 font-medium">
-            Calculate net metal weight, purity grade adjustments, market value & maximum loan limit
+            {isMarathi
+              ? 'निव्वळ वजन, कॅरेट शुद्धता, बाजारभाव आणि कमाल कर्ज मर्यादा त्वरित काढा'
+              : 'Calculate net metal weight, purity grade adjustments, market value & maximum loan limit'
+            }
           </p>
         </div>
 
@@ -79,12 +85,14 @@ export default function ValuationPage() {
           {/* Controls */}
           <div className="bg-white rounded-2xl border border-slate-200/80 p-6 shadow-xs space-y-4">
             <h3 className="text-sm font-bold text-slate-900 border-b border-slate-100 pb-3">
-              Valuation Parameters
+              {isMarathi ? 'मूल्यांकन घटक व मापदंड' : 'Valuation Parameters'}
             </h3>
 
             {/* Metal Type Selector */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Select Metal Type</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                {isMarathi ? 'धातूचा प्रकार निवडा' : 'Select Metal Type'}
+              </label>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
@@ -98,7 +106,7 @@ export default function ValuationPage() {
                       : 'bg-slate-50 text-slate-600 border-slate-200'
                   }`}
                 >
-                  🟡 Gold Metal
+                  🪙 {isMarathi ? 'सोने (Gold)' : 'Gold'}
                 </button>
                 <button
                   type="button"
@@ -108,135 +116,155 @@ export default function ValuationPage() {
                   }}
                   className={`py-2 px-3 rounded-xl text-xs font-bold transition-all border ${
                     metalType === 'Silver'
-                      ? 'bg-slate-800 text-slate-100 border-slate-900 shadow-xs'
+                      ? 'bg-slate-700 text-white border-slate-800 shadow-xs'
                       : 'bg-slate-50 text-slate-600 border-slate-200'
                   }`}
                 >
-                  ⚪ Silver Metal
+                  🥈 {isMarathi ? 'चांदी (Silver)' : 'Silver'}
                 </button>
               </div>
             </div>
 
-            {metalType === 'Gold' ? (
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Live 24K Gold Rate (₹/g)</label>
-                <input
-                  type="number"
-                  value={rate24k}
-                  onChange={(e) => setRate24k(Number(e.target.value))}
-                  className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                />
+            <div>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-xs font-bold text-slate-700">
+                  {metalType === 'Gold' ? (isMarathi ? '२४ कॅरेट सोन्याचा दर (₹/ग्रॅम)' : '24K Gold Rate (₹/g)') : (isMarathi ? 'चांदीचा दर (₹/ग्रॅम)' : 'Silver Rate (₹/g)')}
+                </label>
+                <button
+                  type="button"
+                  onClick={handleSyncLive}
+                  disabled={loadingLive}
+                  className="text-[11px] font-bold text-amber-600 hover:text-amber-700 underline"
+                >
+                  {loadingLive ? (isMarathi ? 'सिंक होत आहे...' : 'Syncing...') : (isMarathi ? '⚡ थेट दर मिळवा' : '⚡ Sync Live')}
+                </button>
               </div>
-            ) : (
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Live Fine Silver Rate (₹/g)</label>
-                <input
-                  type="number"
-                  value={silverRatePerGram}
-                  onChange={(e) => setSilverRatePerGram(Number(e.target.value))}
-                  className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
-                />
-                <span className="text-[10px] text-slate-500 mt-1 block">
-                  Equivalent to ₹{formatCurrency(silverRatePerGram * 1000)} / kg
-                </span>
-              </div>
-            )}
+              <input
+                type="number"
+                value={metalType === 'Gold' ? rate24k : silverRatePerGram}
+                onChange={(e) => metalType === 'Gold' ? setRate24k(Number(e.target.value)) : setSilverRatePerGram(Number(e.target.value))}
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Gross Weight (g)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">{dict.goldItem.grossWeight}</label>
                 <input
                   type="number"
                   step="0.001"
+                  min="0"
+                  placeholder={isMarathi ? 'एकूण वजन प्रविष्ट करा' : 'Enter gross weight'}
                   value={grossWeight}
-                  onChange={(e) => setGrossWeight(Number(e.target.value))}
-                  className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  onChange={(e) => setGrossWeight(e.target.value === '' ? '' : Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-amber-500"
                 />
               </div>
+
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Stone Deduction (g)</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">{dict.goldItem.stoneWeight}</label>
                 <input
                   type="number"
                   step="0.001"
+                  min="0"
+                  placeholder="0.000"
                   value={stoneWeight}
-                  onChange={(e) => setStoneWeight(Number(e.target.value))}
-                  className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                  onChange={(e) => setStoneWeight(e.target.value === '' ? '' : Number(e.target.value))}
+                  className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold focus:ring-2 focus:ring-amber-500"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">Purity & Quality Grade</label>
+              <label className="block text-xs font-bold text-slate-700 mb-1">{dict.goldItem.purity}</label>
               <select
                 value={karat}
                 onChange={(e) => setKarat(e.target.value)}
-                className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm font-bold bg-slate-50 focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                className="w-full px-3 py-2 border border-slate-200 rounded-xl text-xs font-bold bg-slate-50 focus:ring-2 focus:ring-amber-500"
               >
-                {metalType === 'Silver' ? (
+                {metalType === 'Gold' ? (
                   <>
-                    <option value="999 Fine Silver (99.9%)">999 Fine Silver (99.9%)</option>
-                    <option value="925 Sterling Silver (92.5%)">925 Sterling Silver (92.5%)</option>
-                    <option value="900 Coin Silver (90.0%)">900 Coin / Utensil Silver (90.0%)</option>
-                    <option value="800 Silver (80.0%)">800 Ornaments Silver (80.0%)</option>
+                    <option value="24K (99.9%)">24K (99.9%) - Fine Gold</option>
+                    <option value="22K (91.6%)">22K (91.6%) - 916 Hallmark</option>
+                    <option value="20K (83.3%)">20K (83.3%) - Traditional</option>
+                    <option value="18K (75.0%)">18K (75.0%) - Diamond Jewelry</option>
+                    <option value="14K (58.5%)">14K (58.5%) - Casted</option>
                   </>
                 ) : (
                   <>
-                    <option value="24K (99.9%)">24K Fine Gold (99.9%)</option>
-                    <option value="22K (91.6%)">22K Standard Hallmark (91.6%)</option>
-                    <option value="20K (83.3%)">20K Gold (83.3%)</option>
-                    <option value="18K (75.0%)">18K Jewellery Gold (75.0%)</option>
-                    <option value="14K (58.5%)">14K Ornament Gold (58.5%)</option>
+                    <option value="999 Fine Silver (99.9%)">999 Fine Silver (99.9%)</option>
+                    <option value="925 Sterling Silver (92.5%)">925 Sterling Silver (92.5%)</option>
+                    <option value="900 Coin Silver (90.0%)">900 Coin / Utensil (90.0%)</option>
+                    <option value="800 Silver (80.0%)">800 Ornaments (80.0%)</option>
                   </>
                 )}
               </select>
             </div>
 
             <div>
-              <label className="block text-xs font-bold text-slate-700 mb-1">LTV Limit Ratio (%)</label>
+              <div className="flex justify-between items-center mb-1">
+                <label className="text-xs font-bold text-slate-700">
+                  {isMarathi ? 'LTV गुणोत्तर मर्यादा (%)' : 'Loan to Value (LTV %)'}
+                </label>
+                <span className="text-xs font-black text-amber-600">{ltv}%</span>
+              </div>
               <input
-                type="number"
+                type="range"
+                min="50"
+                max="85"
+                step="5"
                 value={ltv}
                 onChange={(e) => setLtv(Number(e.target.value))}
-                className="w-full px-3.5 py-2 border border-slate-300 rounded-xl text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:outline-none"
+                className="w-full accent-amber-600"
               />
+              <div className="flex justify-between text-[10px] text-slate-400 font-semibold">
+                <span>50% (Conservative)</span>
+                <span>75% (RBI Standard)</span>
+                <span>85% (High Risk)</span>
+              </div>
             </div>
           </div>
 
-          {/* Results Summary */}
-          <div className="bg-slate-950 text-white rounded-2xl p-6 shadow-xl border border-amber-500/30 flex flex-col justify-between">
+          {/* Results Output */}
+          <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-md space-y-4 flex flex-col justify-between">
             <div>
-              <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                <span className="text-xs font-bold text-amber-400 uppercase tracking-wider">Valuation Results ({metalType})</span>
-                <span className="text-[10px] font-bold px-2 py-0.5 bg-amber-500/20 text-amber-300 rounded-md">
-                  RBI Compliant Engine
-                </span>
-              </div>
+              <h3 className="text-sm font-extrabold text-amber-400 border-b border-slate-800 pb-3 flex items-center gap-1.5">
+                <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                <span>{isMarathi ? 'मूल्यांकन व कमाल कर्ज मर्यादा' : 'Valuation & Sanction Cap'}</span>
+              </h3>
 
-              <div className="mt-4 space-y-3">
-                <div className="flex justify-between items-center text-xs text-slate-300">
-                  <span>Net {metalType} Weight:</span>
-                  <span className="text-sm font-extrabold text-white">{result.netWeight} grams</span>
+              <div className="mt-4 space-y-3 text-xs">
+                <div className="flex justify-between items-center py-2 border-b border-slate-800">
+                  <span className="text-slate-400">{dict.goldItem.netWeight}</span>
+                  <span className="font-extrabold text-white text-sm">{formatWeight(result.netWeight)}</span>
                 </div>
-                <div className="flex justify-between items-center text-xs text-slate-300">
-                  <span>Pure {metalType} Content:</span>
-                  <span className="text-sm font-extrabold text-amber-400">{result.pureGoldWeightGrams} grams</span>
+
+                <div className="flex justify-between items-center py-2 border-b border-slate-800">
+                  <span className="text-slate-400">{isMarathi ? 'प्रभावी धातू दर' : 'Effective Metal Rate'}</span>
+                  <span className="font-extrabold text-slate-200">
+                    ₹{result.rateAppliedPerGram.toLocaleString('en-IN')}/g
+                  </span>
                 </div>
-                <div className="flex justify-between items-center text-xs text-slate-300">
-                  <span>Applied Rate per Gram:</span>
-                  <span className="text-sm font-extrabold text-white">₹{result.rateAppliedPerGram} / gram</span>
+
+                <div className="flex justify-between items-center py-2 border-b border-slate-800">
+                  <span className="text-slate-400">{dict.goldItem.appraisedValue}</span>
+                  <span className="font-extrabold text-amber-300 text-base">
+                    {formatCurrency(result.estimatedMarketValue)}
+                  </span>
                 </div>
-                <div className="flex justify-between items-center text-xs text-slate-300 pt-2 border-t border-slate-800">
-                  <span>Estimated Ornament Market Value:</span>
-                  <span className="text-base font-extrabold text-amber-300">{formatCurrency(result.estimatedMarketValue)}</span>
+
+                <div className="flex justify-between items-center py-2 border-b border-slate-800">
+                  <span className="text-slate-400">{isMarathi ? 'सध्याची LTV मर्यादा' : 'Approved LTV Cap'}</span>
+                  <span className="font-extrabold text-emerald-400">{ltv}%</span>
                 </div>
               </div>
             </div>
 
-            <div className="pt-6 border-t border-slate-800 mt-6">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                Maximum Eligible Loan Disbursal ({result.ltvPercentage}% LTV)
+            <div className="p-4 bg-gradient-to-r from-amber-600 to-amber-500 rounded-xl text-slate-950 font-black">
+              <span className="text-[10px] uppercase tracking-wider block opacity-80">
+                {dict.goldItem.maxLoanLimit}
               </span>
-              <div className="text-3xl font-black text-amber-400 gold-glow">{formatCurrency(result.maxLoanAmount)}</div>
+              <span className="text-xl md:text-2xl mt-0.5 block">{formatCurrency(result.maxLoanAmount)}</span>
             </div>
           </div>
         </div>
